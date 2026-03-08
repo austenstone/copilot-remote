@@ -298,21 +298,46 @@ async function main(): Promise<void> {
 
     // Permission request → send inline buttons
     const onPermission = async (req: any) => {
-      const kind = req.kind ?? 'action';
-      let description = '';
-      if (kind === 'shell' && req.fullCommandText) {
-        description = '`' + req.fullCommandText.slice(0, 200) + '`';
-      } else if (req.intention) {
-        description = req.intention;
+      // Unwrap — event data may be nested under permissionRequest
+      const perm = req.permissionRequest ?? req;
+      const kind = perm.kind ?? 'action';
+      
+      const kindIcons: Record<string, string> = {
+        shell: '⚡', write: '✏️', url: '🌐', mcp: '🔌', read: '📖', 'custom-tool': '🔧',
+      };
+      const icon = kindIcons[kind] ?? '🔐';
+
+      let title = '';
+      let detail = '';
+
+      if (kind === 'shell') {
+        title = 'Run command';
+        const cmd = perm.fullCommandText ?? '';
+        detail = '```\n' + cmd.slice(0, 300) + '\n```';
+        if (perm.intention) detail += '\n_' + perm.intention + '_';
+      } else if (kind === 'url') {
+        title = 'Fetch URL';
+        detail = '`' + (perm.url ?? '').slice(0, 200) + '`';
+        if (perm.intention) detail += '\n_' + perm.intention + '_';
+      } else if (kind === 'write') {
+        title = 'Write file';
+        detail = '`' + (perm.path ?? perm.file_path ?? 'unknown') + '`';
+        if (perm.intention) detail += '\n_' + perm.intention + '_';
+      } else if (kind === 'mcp') {
+        title = 'MCP call';
+        detail = '`' + (perm.serverName ?? '') + '`' + (perm.toolName ? ' → `' + perm.toolName + '`' : '');
+        if (perm.intention) detail += '\n_' + perm.intention + '_';
       } else {
-        description = JSON.stringify(req).slice(0, 200);
+        title = kind;
+        detail = perm.intention ?? JSON.stringify(perm).slice(0, 150);
       }
 
-      const text = '🔐 *Permission Required*\n' + description;
+      const text = icon + ' *' + title + '*\n' + detail;
       const buttons = [
         [
-          { text: '👍 Approve', data: 'perm:yes' },
-          { text: '👎 Deny', data: 'perm:no' },
+          { text: '✅ Approve', data: 'perm:yes' },
+          { text: '❌ Deny', data: 'perm:no' },
+          { text: '✅ Approve All', data: 'perm:all' },
         ],
       ];
       const msgId = await telegram.sendMessageWithButtons(chatId, text, buttons);
@@ -931,14 +956,26 @@ async function main(): Promise<void> {
 
   telegram.setCallbackHandler(async (callbackId: string, data: string, chatId: string, msgId: number) => {
     // Permission approval/denial
-    if (data === 'perm:yes' || data === 'perm:no') {
+    if (data === 'perm:yes' || data === 'perm:no' || data === 'perm:all') {
       const session = sessions.get(chatId);
       if (!session?.alive) return;
-      const approved = data === 'perm:yes';
-      if (approved) session.approve(); else session.deny();
-      pendingPermissions.delete(msgId);
-      await telegram.editMessageButtons(chatId, msgId, 
-        approved ? '✅ Approved' : '❌ Denied', []);
+      
+      if (data === 'perm:all') {
+        // Switch to allow-all for remainder of session
+        session.permissionMode = 'allow-all';
+        const cfg = getConfig(chatId);
+        cfg.permissionMode = 'allow-all';
+        setConfig(chatId, cfg);
+        session.approve();
+        pendingPermissions.delete(msgId);
+        await telegram.editMessageButtons(chatId, msgId, '✅ Approved — all tools allowed for this session', []);
+      } else {
+        const approved = data === 'perm:yes';
+        if (approved) session.approve(); else session.deny();
+        pendingPermissions.delete(msgId);
+        await telegram.editMessageButtons(chatId, msgId, 
+          approved ? '✅ Approved' : '❌ Denied', []);
+      }
       return;
     }
 
