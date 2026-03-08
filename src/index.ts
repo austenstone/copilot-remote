@@ -382,6 +382,11 @@ async function main(): Promise<void> {
     // Try to resume a saved session
     const saved = sessionStore.get(chatId);
     if (saved?.sessionId) {
+      // Restore working directory from session DB
+      if (saved.cwd && saved.cwd !== config.workDir) {
+        workDirs.set(chatId, saved.cwd);
+        opts.cwd = saved.cwd;
+      }
       try {
         await s.resume(saved.sessionId, opts);
         sessionStore.touch(chatId);
