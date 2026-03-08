@@ -413,6 +413,7 @@ async function main(): Promise<void> {
       } else {
         log.debug('Stream: edit message', streamMsgId);
         await client.editMessage(chatId, streamMsgId, text);
+        client.sendTyping(chatId); // re-send typing after edit (edit cancels it)
       }
     };
 
