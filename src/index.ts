@@ -376,11 +376,18 @@ async function main(): Promise<void> {
           await client.sendMessage(chatId, '📂 ' + workDir(chatId));
           break;
         }
-        workDirs.set(chatId, args[0]);
-        const s = sessions.get(chatId);
-        if (s?.alive) s.kill();
-        sessions.delete(chatId);
-        await client.sendMessage(chatId, '📂 Switched to `' + args[0] + '`');
+        const newDir = args[0].startsWith('~') ? args[0].replace('~', process.env.HOME ?? '/') : args[0];
+        workDirs.set(chatId, newDir);
+        const oldSession = sessions.get(chatId);
+        if (oldSession?.alive) {
+          oldSession.kill();
+          sessions.delete(chatId);
+          await client.sendMessage(chatId, '📂 `' + newDir + '`\nRestarting session...');
+          await getSession(chatId);
+          await client.sendMessage(chatId, '✅ Ready in `' + newDir + '`');
+        } else {
+          await client.sendMessage(chatId, '📂 `' + newDir + '` — next session will start here.');
+        }
         break;
       }
       case '/status': {
