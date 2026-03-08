@@ -488,9 +488,9 @@ async function main(): Promise<void> {
       const p: string[] = [];
       if (intentText) p.push('🎯 *' + intentText + '*');
       if (thinkingText && c.showThinking) {
-        const s = thinkingText;
-        // Light escaping: only escape what breaks Telegram markdown italic
-        p.push('💭 ' + s);
+        p.push('💭 ' + thinkingText);
+      } else if (completedThinkingText && c.showThinking) {
+        p.push('💭 ' + completedThinkingText);
       }
       if (toolLines.length) p.push(toolLines.join('\n'));
       if (activeToolStatus && !responseText) p.push('⏳ ' + activeToolStatus);
@@ -556,13 +556,12 @@ async function main(): Promise<void> {
     let thinkingDone = false; // true once assistant.reasoning (final) fires
     let pendingResponseText = ''; // buffer response deltas until thinking finishes streaming
 
+    let completedThinkingText = ''; // preserved after transition for display
+
     const flushThinkingTransition = () => {
-      if (streamMsgId) {
-        client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
-        streamMsgId = null;
-        streamGeneration++;
-      }
+      completedThinkingText = thinkingText; // preserve for final display
       thinkingText = '';
+      // Don't delete stream message — just clear thinking and continue in same message
       react(LIFECYCLE_REACTIONS.writing);
       // Flush any buffered response text
       if (pendingResponseText) {
@@ -744,10 +743,10 @@ async function main(): Promise<void> {
       const final = res.content;
 
       // Finalize: send the complete response
-      // If thinking message is still showing (transition never happened), delete it
-      if (thinkingText && streamMsgId) {
-        client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
-        streamMsgId = null;
+      // If thinking is still streaming (no response came), transition now
+      if (thinkingText) {
+        completedThinkingText = thinkingText;
+        thinkingText = '';
       }
       // Clean up any stale messages from old generations
       for (const id of staleMessageIds) {
