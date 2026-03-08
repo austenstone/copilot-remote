@@ -26,7 +26,8 @@ export class TelegramClient implements Client {
     await this.bridge.setMyCommands([
       { command: 'new', description: 'Fresh session' },
       { command: 'stop', description: 'Kill session' },
-      { command: 'status', description: 'Model, mode, quota' },
+      { command: 'cd', description: 'Change working directory' },
+      { command: 'status', description: 'Model, mode, cwd, quota' },
       { command: 'config', description: 'Settings menu' },
       { command: 'plan', description: 'Plan mode' },
       { command: 'agent', description: 'Switch agent' },
