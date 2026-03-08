@@ -1259,13 +1259,17 @@ async function main(): Promise<void> {
     const text =
       '⚙️ *Settings*\nModel: `' +
       c.model +
-      '`\nMode: ' +
-      (MODE_LABELS[mode] ?? mode) +
+      '`\n' +
+      (c.autopilot ? '🟢 Autopilot' : '🔴 Ask before acting') +
       (c.agent ? '\nAgent: `' + c.agent + '`' : '') +
       (globalCfg.provider ? '\nProvider: Custom (' + globalCfg.provider.baseUrl + ')' : '') +
       (globalCfg.mcpServers ? '\nMCP: ' + Object.keys(globalCfg.mcpServers).length + ' servers' : '');
     const buttons = [
-      [modeBtn('interactive'), modeBtn('plan'), modeBtn('autopilot')],
+      [{
+        text: c.autopilot ? '🟢 Autopilot ON' : '🔴 Autopilot OFF',
+        data: pfx('cfg:autopilot'),
+        style: c.autopilot ? 'danger' : 'primary',
+      }],
       [{ text: '🤖 Change Model', data: pfx('cfg:modelPicker') }],
       [{ text: '🧠 Reasoning: ' + (c.reasoningEffort || 'Default'), data: pfx('cfg:reasoning') }],
       [{ text: '📨 Messages: ' + (c.messageMode || 'Default'), data: pfx('cfg:messageMode') }],
@@ -1784,6 +1788,18 @@ async function main(): Promise<void> {
       }
       setCfg(chatId, c);
       return sendSecurityMenu(chatId, msgId);
+    }
+    if (data === 'cfg:autopilot') {
+      const c = cfg(chatId);
+      c.autopilot = !c.autopilot;
+      c.mode = c.autopilot ? 'autopilot' : 'interactive';
+      setCfg(chatId, c);
+      // Kill old session — next message will create a fresh one with new config
+      const old = sessions.get(chatId);
+      if (old?.alive) { await old.disconnect(); }
+      sessions.delete(chatId);
+      sessionStore.delete(chatId);
+      return sendConfigMenu(chatId, msgId);
     }
     if (data.startsWith('mode:')) {
       const newMode = data.slice(5) as 'interactive' | 'plan' | 'autopilot';
