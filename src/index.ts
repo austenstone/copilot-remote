@@ -556,15 +556,16 @@ async function main(): Promise<void> {
 
       let final = res.content;
       if (c.showUsage && lastUsage) {
+        const u = lastUsage;
         const parts: string[] = [];
-        if (lastUsage.model) parts.push(lastUsage.model);
-        if (lastUsage.inputTokens || lastUsage.outputTokens) {
-          const inp = lastUsage.inputTokens ?? 0;
-          const out = lastUsage.outputTokens ?? 0;
+        if (u.model) parts.push(u.model);
+        if (u.inputTokens || u.outputTokens) {
+          const inp = u.inputTokens ?? 0;
+          const out = u.outputTokens ?? 0;
           parts.push(`${inp}→${out} tokens`);
         }
-        if (lastUsage.cacheReadTokens) parts.push(`${lastUsage.cacheReadTokens} cached`);
-        if (lastUsage.duration) parts.push(`${(lastUsage.duration / 1000).toFixed(1)}s`);
+        if (u.cacheReadTokens) parts.push(`${u.cacheReadTokens} cached`);
+        if (u.duration) parts.push(`${(u.duration / 1000).toFixed(1)}s`);
         if (contextInfo) parts.push(contextInfo.replace(/[📊 `]/g, ''));
         if (turnCount > 0) parts.push(`turn ${turnCount + 1}`);
         if (parts.length) final += '\n\n`' + parts.join(' · ') + '`';
