@@ -108,7 +108,6 @@ export class TelegramClient implements Client {
         }
       }
 
-      log.debug(`[telegram] dispatch ${ctx.chatId}:${threadId ?? 'dm'} t=${Date.now()}`);
       // Do NOT await — let handlePrompt run in background so other updates process immediately
       void this.onMessage?.(
         ctx.message.text,
