@@ -79,25 +79,46 @@ export class TelegramBridge {
     this.polling = false;
   }
 
-  async sendMessage(chatId: string | number, text: string, replyTo?: number): Promise<void> {
+  async sendMessage(chatId: string | number, text: string, replyTo?: number): Promise<number | null> {
     // Split long messages
     const chunks = this.splitMessage(text);
+    let lastMsgId: number | null = null;
 
     for (const chunk of chunks) {
-      await this.api('sendMessage', {
+      const res = await this.api('sendMessage', {
         chat_id: chatId,
         text: chunk,
         parse_mode: 'Markdown',
         ...(replyTo ? { reply_to_message_id: replyTo } : {}),
       }).catch(async () => {
         // Markdown parse failed — retry without parse_mode
-        await this.api('sendMessage', {
+        return await this.api('sendMessage', {
           chat_id: chatId,
           text: chunk,
           ...(replyTo ? { reply_to_message_id: replyTo } : {}),
         });
       });
+      lastMsgId = res?.result?.message_id ?? null;
     }
+
+    return lastMsgId;
+  }
+
+  async editMessage(chatId: string | number, messageId: number, text: string): Promise<void> {
+    const truncated = text.slice(0, MAX_MESSAGE_LENGTH);
+    await this.api('editMessageText', {
+      chat_id: chatId,
+      message_id: messageId,
+      text: truncated,
+      parse_mode: 'Markdown',
+    }).catch(async () => {
+      // Markdown failed or message not modified
+      await this.api('editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text: truncated,
+      }).catch(() => {}); // swallow "message not modified" errors
+    });
   }
 
   async sendTyping(chatId: string | number): Promise<void> {
