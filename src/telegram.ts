@@ -277,7 +277,13 @@ export class TelegramClient implements Client {
         parse_mode: 'HTML',
       };
       if (threadId) params.message_thread_id = threadId;
-      await (this.bot.api.raw as Record<string, Function>).sendMessageDraft(params);
+      // Use raw fetch — grammY may not expose sendMessageDraft natively
+      const resp = await fetch(
+        `https://api.telegram.org/bot${this.config.botToken}/sendMessageDraft`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) },
+      );
+      const json = (await resp.json()) as { ok?: boolean; description?: string };
+      if (!json.ok) throw new Error(json.description ?? 'sendMessageDraft failed');
       if (!this.draftSupported) log.info('Draft streaming enabled ✓');
       this.draftSupported = true;
       return true;

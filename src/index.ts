@@ -257,6 +257,14 @@ async function main(): Promise<void> {
     return origRemoveReaction(cid, msgId);
   };
 
+  if (client.sendDraft) {
+    const origSendDraft = client.sendDraft.bind(client);
+    client.sendDraft = (key: string, draftId: number, text: string) => {
+      const [cid, tid] = resolveKey(key);
+      return origSendDraft(cid, draftId, text, tid);
+    };
+  }
+
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
   // Get or create session
