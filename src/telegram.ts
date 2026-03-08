@@ -435,7 +435,7 @@ export class TelegramClient implements Client {
         const fs = await import('fs');
         buffer = fs.readFileSync(pathOrUrl);
       }
-      await this.bot.api.raw.setMyProfilePhoto({ photo: new InputFile(buffer, 'avatar.jpg') });
+      await this.bot.api.raw.setMyProfilePhoto({ photo: { type: 'static', photo: new InputFile(buffer, 'avatar.jpg') } });
     } catch (e) {
       log.debug('setMyProfilePhoto failed:', e);
     }
