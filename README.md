@@ -1,102 +1,163 @@
 # copilot-remote
 
-Control GitHub Copilot from your phone. Telegram today, Discord/iMessage/WhatsApp tomorrow.
+Control GitHub Copilot from Telegram. Full SDK integration — streaming, tool calls, permissions, multi-session forum topics.
 
 [![CI](https://github.com/tag-assistant/copilot-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/tag-assistant/copilot-remote/actions/workflows/ci.yml)
 
-## What
-
-A bridge between the [GitHub Copilot SDK](https://github.com/github/copilot-sdk) and messaging platforms. Send prompts from Telegram, get streamed responses with tool calls, inline permission approval, model switching, and full Copilot CLI command parity.
-
-## Quick Start
+## Setup
 
 ```bash
-npm i -g copilot-remote
-export COPILOT_REMOTE_BOT_TOKEN=your-telegram-bot-token
-copilot-remote
+# 1. Authenticate with GitHub (needs Copilot license)
+gh auth login
+
+# 2. Create config
+mkdir -p ~/.copilot-remote
+cat > ~/.copilot-remote/config.json << 'EOF'
+{
+  "botToken": "your-telegram-bot-token",
+  "workDir": "/path/to/your/projects"
+}
+EOF
+
+# 3. Run
+npx copilot-remote
 ```
 
-Or one-liner:
+### Auth Priority
 
-```bash
-COPILOT_REMOTE_BOT_TOKEN=xxx npx copilot-remote
-```
+1. `githubToken` in config.json
+2. `GITHUB_TOKEN` env var
+3. `gh auth token` (auto-detected)
+
+The token must belong to an account with an active **GitHub Copilot license**.
 
 ## Features
 
-- **Streaming** — edit-in-place responses, just like ChatGPT
-- **Tool calls** — see what Copilot is doing (read, edit, run, search)
-- **Permissions** — approve/deny tool calls inline, or enable autopilot
-- **Models** — switch models live via `/config` inline keyboard
-- **Agents** — use custom Copilot agents from your workspace
-- **Commands** — `/plan`, `/fleet`, `/research`, `/diff`, `/review`, `/compact`, and more
-- **Config** — toggle thinking, tools, usage, reactions, autopilot
+- **Streaming** — edit-in-place responses with typing indicators
+- **Tool calls** — see file reads, edits, shell commands as they happen
+- **Inline permissions** — approve/deny with buttons, reactions, or reply text
+- **Three modes** — Interactive (approve each), Plan (review first), Autopilot (approve all)
+- **Model switching** — pick from available models via `/config`
+- **Reasoning effort** — off/low/medium/high per model capability
+- **Forum topics** — each Telegram topic = isolated Copilot session with its own context
+- **Voice messages** — transcribed and forwarded to Copilot
+- **Photos & documents** — sent as context
+- **Infinite sessions** — automatic context compaction, no token limit crashes
+- **Session persistence** — survives restarts
+- **Custom agents** — use workspace `.copilot/agents/` definitions
+- **Custom tools** — Copilot can send you Telegram notifications
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
 | `/new` | Fresh session |
 | `/stop` | Kill session |
-| `/cd [dir]` | Change working directory |
-| `/status` | Model, mode, quota |
-| `/config` | Settings menu |
-| `/plan [task]` | Plan mode toggle or create plan |
-| `/autopilot` | Toggle auto-approve all tools |
-| `/fleet [task]` | Parallel subagents |
-| `/agent [name]` | Switch custom agent |
+| `/cd <dir>` | Change working directory (restarts session) |
+| `/status` | Model, mode, git branch, quota |
+| `/config` | Settings menu (model, mode, display, auto-approve) |
+| `/plan` | Plan mode |
+| `/agent <name>` | Switch agent |
 | `/research <topic>` | Deep research |
 | `/diff` | Review uncommitted changes |
 | `/review` | Code review |
 | `/compact` | Compress context |
 | `/tools` | List available tools |
-| `/files` | Browse workspace files |
-| `/usage` | Quota and requests |
-| `/debug` | Toggle debug logging |
+| `/files` | Workspace files |
+| `/usage` | Token quota |
 
-## Configuration
+## Config
 
-Environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `COPILOT_REMOTE_BOT_TOKEN` | Telegram bot token (required) |
-| `COPILOT_REMOTE_ALLOWED_USERS` | Comma-separated Telegram user IDs |
-| `COPILOT_REMOTE_WORKDIR` | Working directory (default: cwd) |
-| `COPILOT_REMOTE_BINARY` | Path to copilot binary |
-| `COPILOT_REMOTE_DEBUG` | Set to `1` for debug logging |
-
-Or create `.copilot-remote.json`:
+`~/.copilot-remote/config.json`:
 
 ```json
 {
-  "botToken": "xxx",
-  "allowedUsers": ["123456"],
-  "workDir": "/home/user/projects"
+  "botToken": "telegram-bot-token",
+  "githubToken": "ghp_...",
+  "workDir": "/home/user/projects",
+  "copilotBinary": "/path/to/copilot",
+  "allowedUsers": ["123456789"],
+  "model": "claude-sonnet-4",
+  "mode": "interactive",
+  "showThinking": false,
+  "showTools": true,
+  "showReactions": true,
+  "autoApprove": {
+    "read": true,
+    "shell": false,
+    "write": false
+  }
 }
 ```
+
+Only `botToken` is required. Everything else has sensible defaults.
+
+## Forum Topics (Multi-Session)
+
+Add the bot to a Telegram supergroup with **admin rights** (`can_manage_topics`). Each forum topic gets its own isolated Copilot session — separate context, model, working directory. Topic name is injected into the system prompt to keep Copilot focused.
 
 ## Architecture
 
 ```
 src/
+  index.ts           — Bridge: commands, streaming, config routing
+  session.ts         — Copilot SDK wrapper (create, send, resume, permissions)
+  telegram.ts        — grammY-based Telegram client
   client.ts          — Platform-agnostic Client interface
-  session.ts         — Copilot SDK wrapper
-  index.ts           — Bridge: commands, streaming, config
-  telegram.ts        — Raw Telegram Bot API
-  clients/
-    telegram.ts      — TelegramClient adapter
-  log.ts             — Debug logger
+  config-store.ts    — Persistent config with per-topic overrides
+  store.ts           — Session persistence (JSON)
+  format/            — Markdown → Telegram HTML (ported from OpenClaw)
+    ir.ts            — markdown-it IR parser
+    render.ts        — Style marker renderer
+    telegram.ts      — Telegram HTML with chunking, file ref wrapping
+    chunk.ts         — Text chunking utilities
+  emoji.ts           — Status emoji mapping
+  tools.ts           — Custom tool definitions
+  log.ts             — Minimal logger
 ```
 
-Adding a new platform: implement `Client` interface, swap one line in `main()`.
+Built on [grammY](https://grammy.dev) with auto-retry, hydrate, and parse-mode plugins.
+
+## Running as a Service (macOS)
+
+```bash
+# Create launch script
+cat > ~/.copilot-remote/launch.sh << 'EOF'
+#!/bin/zsh
+export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+export HOME=/Users/$USER
+exec npx tsx ~/src/copilot-remote/src/index.ts
+EOF
+chmod +x ~/.copilot-remote/launch.sh
+
+# Create launchd plist
+cat > ~/Library/LaunchAgents/com.copilot-remote.plist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.copilot-remote</string>
+  <key>ProgramArguments</key><array>
+    <string>$HOME/.copilot-remote/launch.sh</string>
+  </array>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$HOME/.copilot-remote/logs/copilot-remote.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.copilot-remote/logs/copilot-remote.log</string>
+</dict>
+</plist>
+EOF
+
+launchctl load ~/Library/LaunchAgents/com.copilot-remote.plist
+```
 
 ## Requirements
 
-- Node.js >= 20
-- GitHub Copilot CLI installed and authenticated (`copilot auth`)
+- Node.js ≥ 20
+- `gh` CLI authenticated (`gh auth login`)
+- GitHub account with Copilot license
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
 
 ## License
 
-MIT
+MIT — Telegram formatter ported from [OpenClaw](https://github.com/openclaw/openclaw).
