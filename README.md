@@ -1,9 +1,5 @@
 # copilot-remote
 
-<p align="center">
-  <img src="assets/logo.jpg" width="200" alt="copilot-remote logo" />
-</p>
-
 Control GitHub Copilot from Telegram. Full SDK integration — streaming, tool calls, permissions, multi-session forum topics.
 
 [![CI](https://github.com/tag-assistant/copilot-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/tag-assistant/copilot-remote/actions/workflows/ci.yml)
