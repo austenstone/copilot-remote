@@ -51,7 +51,7 @@ export class TelegramClient implements Client {
 
     // ── Plugins ──
     this.bot.api.config.use(apiThrottler());
-    this.bot.api.config.use(autoRetry());
+    this.bot.api.config.use(autoRetry({ maxRetryAttempts: 5, maxDelaySeconds: 30 }));
     const defaultParseMode: Transformer = (prev, method, payload, signal) => {
       if (!('parse_mode' in payload)) {
         (payload as Record<string, unknown>).parse_mode = 'HTML';
