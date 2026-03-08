@@ -56,8 +56,8 @@ export class SessionStore {
       sessionId: mapping.sessionId,
       cwd: row?.cwd ?? '',
       model: mapping.model,
-      createdAt: row ? new Date(row.created_at + 'Z').getTime() : 0,
-      lastUsed: row ? new Date(row.updated_at + 'Z').getTime() : 0,
+      createdAt: row ? new Date(row.created_at).getTime() : 0,
+      lastUsed: row ? new Date(row.updated_at).getTime() : 0,
     };
   }
 
@@ -94,8 +94,8 @@ export class SessionStore {
           sessionId: row.id,
           cwd: row.cwd ?? '',
           model: this.chatMap[chatId]?.model ?? '',
-          createdAt: new Date(row.created_at + 'Z').getTime(),
-          lastUsed: new Date(row.updated_at + 'Z').getTime(),
+          createdAt: new Date(row.created_at).getTime(),
+          lastUsed: new Date(row.updated_at).getTime(),
         }] as [string, SessionEntry];
       });
     } catch (e) {

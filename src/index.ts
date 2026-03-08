@@ -1019,16 +1019,22 @@ async function main(): Promise<void> {
           return Math.floor(h / 24) + 'd ago';
         };
         const current = sessions.get(chatId)?.sessionId;
+        // Collect all active session IDs across all chats
+        const activeSessions = new Set<string>();
+        for (const [, s] of sessions) {
+          if (s.alive && s.sessionId) activeSessions.add(s.sessionId);
+        }
         const buttons: Button[][] = [];
         for (const [key, entry] of all.slice(0, 10)) {
           const summary = sessionStore.getSummary(entry.sessionId)?.slice(0, 60) ?? entry.model;
           const turns = sessionStore.getTurnCount(entry.sessionId);
           const isCurrent = entry.sessionId === current;
-          const label = (isCurrent ? '▶️ ' : '') + summary + (turns ? ' · ' + turns + ' turns' : '') + ' · ' + ago(entry.lastUsed);
+          const isActive = !isCurrent && activeSessions.has(entry.sessionId);
+          const label = (isCurrent ? '▶️ ' : isActive ? '🟢 ' : '') + summary + (turns ? ' · ' + turns + ' turns' : '') + ' · ' + ago(entry.lastUsed);
           buttons.push([{
             text: label,
             data: '@' + chatId + '|session:' + entry.sessionId,
-            ...(isCurrent ? { style: 'success' } : {}),
+            ...(isCurrent ? { style: 'success' } : isActive ? { style: 'primary' } : {}),
           }]);
         }
         await client.sendButtons(chatId, '📋 *Sessions*', buttons);
