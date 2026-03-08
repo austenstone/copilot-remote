@@ -156,13 +156,11 @@ async function main(): Promise<void> {
       const args = tool.arguments;
       let detail = '';
       if (name === 'bash' && args?.command) {
-        detail = ' `' + args.command + '`';
+        detail = ': ' + args.command;
       } else if ((name === 'edit_file' || name === 'read_file') && args?.file_path) {
-        detail = ' `' + args.file_path + '`';
-      } else if (args?.description) {
-        detail = ' ' + args.description;
+        detail = ': ' + args.file_path;
       }
-      streamText += '\n🔧 *' + name + '*' + detail + '\n';
+      streamText += '\n⚙ ' + name + detail;
       scheduleEdit();
     };
 
