@@ -473,14 +473,23 @@ export class Session extends EventEmitter {
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleReject: ((err: Error) => void) | undefined;
       let idleActive = true;
+      let idlePaused = false; // paused during user_input/permission waits
       let unsubscribeIdle: (() => void) | undefined;
-      const eventHandler = () => {
-        if (!idleActive) return;
+      const resetIdleTimer = () => {
+        if (!idleActive || idlePaused) return;
         if (idleTimer) clearTimeout(idleTimer);
         if (idleReject) {
           idleTimer = setTimeout(() => idleReject?.(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
         }
       };
+      const pauseIdle = () => { idlePaused = true; if (idleTimer) { clearTimeout(idleTimer); idleTimer = undefined; } };
+      const resumeIdle = () => { idlePaused = false; resetIdleTimer(); };
+      // Pause idle timer when waiting for user input or permissions
+      this.on('user_input_request', pauseIdle);
+      this.on('user_input_response', resumeIdle);
+      this.on('permission_request', pauseIdle);
+      this.on('permission_response', resumeIdle);
+      const eventHandler = () => { resetIdleTimer(); };
       const idlePromise = new Promise<never>((_resolve, reject) => {
         idleReject = reject;
         idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
@@ -500,7 +509,11 @@ export class Session extends EventEmitter {
         if (idleTimer) clearTimeout(idleTimer);
         idleReject = undefined;
         idleActive = false;
-        unsubscribeIdle?.(); // properly unsubscribe from SDK events
+        unsubscribeIdle?.();
+        this.off('user_input_request', pauseIdle);
+        this.off('user_input_response', resumeIdle);
+        this.off('permission_request', pauseIdle);
+        this.off('permission_response', resumeIdle);
       }
       log.debug('sendAndWait result:', JSON.stringify(result).slice(0, 500));
 
