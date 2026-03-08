@@ -479,11 +479,17 @@ async function main(): Promise<void> {
       return;
     }
     client.sendTyping(chatId);
-    const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).then(() => client.sendTyping(chatId)).catch(() => {}); } : () => {};
+    const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).then(() => sendTypingSafe()).catch(() => {}); } : () => {};
     react(LIFECYCLE_REACTIONS.received);
-    // Keep typing indicator alive — Telegram cancels it on every send/edit
-    // 3s interval (indicator lasts 5s) + send on every SDK event for responsiveness
-    const typingInterval = setInterval(() => client.sendTyping(chatId), 3000);
+    // Typing keepalive — same pattern as OpenClaw: 3s interval + TTL safety + failure guard
+    let typingFails = 0;
+    const MAX_TYPING_FAILS = 3;
+    const sendTypingSafe = () => {
+      if (typingFails >= MAX_TYPING_FAILS) return; // tripped — stop trying
+      client.sendTyping(chatId).catch(() => { typingFails++; });
+    };
+    sendTypingSafe();
+    const typingInterval = setInterval(() => sendTypingSafe(), 3000);
 
     let streamMsgId: number | null = null;
     let draftId: number | null = null;
@@ -552,7 +558,7 @@ async function main(): Promise<void> {
         log.debug('Stream: edit message', streamMsgId);
         // Fire-and-forget edit — don't block the flush loop waiting for Telegram's response
         client.editMessage(chatId, streamMsgId, text).then(() => {
-          client.sendTyping(chatId); // re-send typing after edit
+          sendTypingSafe(); // re-send typing after edit
         }).catch(() => {});
       }
     };
@@ -610,7 +616,7 @@ async function main(): Promise<void> {
       if (t.toolCallId) toolStartTimes.set(t.toolCallId, Date.now());
       // ask_user has its own UI (buttons/reply prompt) — suppress from tool display
       if (t.toolName === 'ask_user') return;
-      client.sendTyping(chatId);
+      sendTypingSafe();
       // React based on tool type
       const toolReaction = t.toolName === 'web_fetch' || t.toolName === 'web_search' ? LIFECYCLE_REACTIONS.web
         : t.toolName === 'bash' ? LIFECYCLE_REACTIONS.command
@@ -644,7 +650,7 @@ async function main(): Promise<void> {
     };
     const onToolEnd = (t: ToolEvent) => {
       activeToolStatus = ''; // clear active tool status
-      client.sendTyping(chatId); // re-send typing (Telegram cancels on edit)
+      sendTypingSafe(); // re-send typing (Telegram cancels on edit)
       if (t.toolName === 'report_intent' || t.toolName === 'ask_user') return;
       if (!c.showTools || !toolLines.length) return;
       const elapsed = t.toolCallId ? toolStartTimes.get(t.toolCallId) : undefined;
