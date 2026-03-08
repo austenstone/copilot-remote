@@ -445,6 +445,7 @@ export class Session extends EventEmitter {
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleReject: ((err: Error) => void) | undefined;
       let idleActive = true;
+      let unsubscribeIdle: (() => void) | undefined;
       const eventHandler = () => {
         if (!idleActive) return;
         if (idleTimer) clearTimeout(idleTimer);
@@ -455,7 +456,7 @@ export class Session extends EventEmitter {
       const idlePromise = new Promise<never>((_resolve, reject) => {
         idleReject = reject;
         idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
-        this.session!.on(eventHandler);
+        unsubscribeIdle = this.session!.on(eventHandler);
       });
       // Prevent unhandled rejection when race resolves normally
       idlePromise.catch(() => {});
@@ -470,7 +471,8 @@ export class Session extends EventEmitter {
       } finally {
         if (idleTimer) clearTimeout(idleTimer);
         idleReject = undefined;
-        idleActive = false; // neuter the event handler (SDK has no .off())
+        idleActive = false;
+        unsubscribeIdle?.(); // properly unsubscribe from SDK events
       }
       log.debug('sendAndWait result:', JSON.stringify(result).slice(0, 500));
 
