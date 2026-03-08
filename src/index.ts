@@ -983,15 +983,33 @@ async function main(): Promise<void> {
       if (!session?.alive) return;
       
       if (data === 'perm:all') {
-        // Switch to autopilot for remainder of session
+        // Switch to autopilot + approve ALL pending permissions
         session.permissionMode = 'autopilot';
         const cfg = getConfig(chatId);
         cfg.permissionMode = 'autopilot';
         setConfig(chatId, cfg);
         try { await session.setMode('autopilot'); } catch {}
+        
+        // Approve this one
         session.approve();
-        pendingPermissions.delete(msgId);
-        await telegram.editMessageButtons(chatId, msgId, '🚀 Autopilot enabled for this session', []);
+        
+        // Clear ALL pending permission messages for this chat
+        const toDelete: number[] = [];
+        for (const [pmsgId, pchatId] of pendingPermissions) {
+          if (pchatId === chatId) {
+            toDelete.push(pmsgId);
+            // Each pending permission is waiting on a 'permission_response' event
+            session.approve();
+          }
+        }
+        for (const pmsgId of toDelete) {
+          pendingPermissions.delete(pmsgId);
+          if (pmsgId !== msgId) {
+            await telegram.editMessageButtons(chatId, pmsgId, '🚀 Auto-approved', []).catch(() => {});
+          }
+        }
+        
+        await telegram.editMessageButtons(chatId, msgId, '🚀 Autopilot enabled — all approved', []);
       } else {
         const approved = data === 'perm:yes';
         if (approved) session.approve(); else session.deny();
