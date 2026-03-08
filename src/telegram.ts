@@ -48,12 +48,16 @@ export class TelegramClient implements Client {
     // Non-session commands bypass sequentialize so they respond instantly
     const INSTANT_COMMANDS = new Set(['config', 'status', 'abort', 'new', 'sessions', 'cd', 'usage', 'compact', 'search', 'prompt']);
     this.bot.use(sequentialize((ctx) => {
+      // Callback queries (button taps) are always instant
+      if (ctx.callbackQuery) return `__cb_${Date.now()}_${Math.random()}`;
       const text = ctx.message?.text ?? '';
       if (text.startsWith('/')) {
         const cmd = text.split(/[\s@]/)[0].slice(1);
-        if (INSTANT_COMMANDS.has(cmd)) return ''; // empty key = no sequentialization
+        if (INSTANT_COMMANDS.has(cmd)) return `__instant_${Date.now()}_${Math.random()}`; // unique key = never sequentialized
       }
-      return String(ctx.chatId ?? '');
+      // Regular messages sequentialize per chat+thread
+      const threadId = ctx.message?.message_thread_id;
+      return threadId ? `${ctx.chatId}:${threadId}` : String(ctx.chatId ?? '');
     }));
     this.bot.api.config.use(apiThrottler());
     this.bot.api.config.use(autoRetry());
