@@ -71,7 +71,7 @@ function loadConfig() {
     allowedUsers: file.allowedUsers ?? process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
     workDir: file.workDir ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
     copilotBinary: file.copilotBinary ?? process.env.COPILOT_REMOTE_BINARY,
-    githubToken: process.env.GITHUB_TOKEN ?? resolveGhToken(),
+    githubToken: file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken(),
   };
 }
 
