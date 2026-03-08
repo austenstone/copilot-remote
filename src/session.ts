@@ -225,8 +225,16 @@ export class Session extends EventEmitter {
       ...(opts.availableTools ? { availableTools: opts.availableTools } : {}),
       ...(opts.excludedTools ? { excludedTools: opts.excludedTools } : {}),
       hooks: {
-        onSessionStart: async () => {
+        onSessionStart: async (_input: unknown, invocation: { sessionId: string }) => {
           this.emit('hook:session_start');
+          // Inject runtime context as additional instructions
+          return {
+            additionalContext: [
+              'You are running via copilot-remote on Telegram.',
+              'Use your custom Telegram tools (send_file, send_photo, send_location, send_voice, pin_message, create_topic, react, send_contact) when appropriate.',
+              `Session ID: ${invocation.sessionId}`,
+            ].join(' '),
+          };
         },
         onSessionEnd: async () => {
           this.emit('hook:session_end');
@@ -237,7 +245,6 @@ export class Session extends EventEmitter {
         },
         onPostToolUse: async (input: { toolName?: string; result?: unknown }) => {
           this.emit('hook:post_tool', { toolName: input.toolName, result: input.result });
-          return undefined;
         },
         onErrorOccurred: async (input: { error?: unknown; message?: string; errorContext?: string; recoverable?: boolean }) => {
           this.emit('hook:error', { error: input.error, message: input.message });
