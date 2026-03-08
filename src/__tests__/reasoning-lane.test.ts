@@ -137,7 +137,7 @@ describe('ReasoningLaneCoordinator', () => {
       const c = new ReasoningLaneCoordinator({ showThinking: false });
       c.updateThinking('x'.repeat(500));
       const d = c.display();
-      assert.match(d, /^\💭 \.\.\./);
+      assert.match(d, /^💭 \.\.\./);
       // 💭 + space + ... + 300 chars
       assert.ok(d.length < 320);
     });

@@ -11,8 +11,8 @@ import { SessionStore } from './store.js';
 import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { discoverAgents } from './agent-discovery.js';
 import { log } from './log.js';
-import { ReasoningLaneCoordinator } from './reasoning-lane.js';
-import { markdownToTelegramHtml } from './format.js';
+import { ReasoningLaneCoordinator } from './reasoning-lane.js'; // eslint-disable-line @typescript-eslint/no-unused-vars -- kept for future use
+import { markdownToTelegramHtml } from './format.js'; // eslint-disable-line @typescript-eslint/no-unused-vars -- kept for future use
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -179,12 +179,6 @@ const PERM_KIND_LABELS: Record<PermKind, string> = {
   'custom-tool': '🔧 Custom tools',
 };
 
-const MODE_LABELS: Record<string, string> = {
-  interactive: '⚡ Interactive',
-  plan: '📋 Plan',
-  autopilot: '🚀 Autopilot',
-};
-
 const MODE_ICONS: Record<string, string> = {
   interactive: '⚡',
   plan: '📋',
@@ -208,9 +202,6 @@ async function main(): Promise<void> {
   // ── Per-chat state ──
   // ── Config ──
   const configStore = new ConfigStore();
-
-  // Is this key a "global" context (DM, not a thread)?
-  const isGlobalKey = (key: string) => !key.includes(':');
 
   const cfg = (key: string) => configStore.get(key);
   const setCfg = (key: string, updates: Partial<ChatConfig>) => configStore.set(key, updates, true);
@@ -574,8 +565,7 @@ async function main(): Promise<void> {
     let thinkingText = '',
       responseText = '';
     let intentText = '';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let lastUsage: any = null;
+    const lastUsage: unknown = null; // eslint-disable-line @typescript-eslint/no-unused-vars
     const toolLines: string[] = [];
     let activeToolStatus = ''; // current tool being executed (always shown)
     let lastEdit = 0,
@@ -839,7 +829,7 @@ async function main(): Promise<void> {
       cleanup();
       clearInterval(typingInterval);
 
-      let final = res.content;
+      const final = res.content;
 
       // Finalize: send the complete response
       // If thinking message is still showing (transition never happened), delete it
@@ -1026,7 +1016,7 @@ async function main(): Promise<void> {
           if (s.alive && s.sessionId) activeSessions.add(s.sessionId);
         }
         const buttons: Button[][] = [];
-        for (const [key, entry] of all.slice(0, 10)) {
+        for (const [, entry] of all.slice(0, 10)) {
           const summary = sessionStore.getSummary(entry.sessionId)?.slice(0, 60) ?? entry.model;
           const turns = sessionStore.getTurnCount(entry.sessionId);
           const isCurrent = entry.sessionId === current;
@@ -1519,6 +1509,7 @@ async function main(): Promise<void> {
       plan: '📋 Plan',
       autopilot: '🚀 Auto',
     };
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const modeBtn = (m: string) => ({
       text: MODE_BTN_LABELS[m] ?? m,
       data: pfx('mode:' + m),
@@ -1954,7 +1945,7 @@ async function main(): Promise<void> {
       for (const pd of promptDirs) {
         const fp = path.join(pd, name + '.prompt.md');
         if (fs.existsSync(fp)) {
-          let content = fs.readFileSync(fp, 'utf-8').replace(/^---\n[\s\S]*?---\n/, '').trim();
+          const content = fs.readFileSync(fp, 'utf-8').replace(/^---\n[\s\S]*?---\n/, '').trim();
           await client.editButtons(chatId, msgId, '📝 Running `' + name + '`...', []);
           await handlePrompt(chatId, msgId, content);
           return;

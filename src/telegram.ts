@@ -1,6 +1,6 @@
 // Copilot Remote — Telegram Client (grammY)
 import { Bot, GrammyError, HttpError, type Context, InputFile } from 'grammy';
-import { run, sequentialize, type RunnerHandle } from '@grammyjs/runner';
+import { run, type RunnerHandle } from '@grammyjs/runner';
 import { apiThrottler } from '@grammyjs/transformer-throttler';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { hydrate, type HydrateFlavor } from '@grammyjs/hydrate';
@@ -270,7 +270,7 @@ export class TelegramClient implements Client {
 
     for (const chunk of chunks) {
       try {
-        const res = await (this.bot.api.raw as Record<string, Function>)['sendMessage']({
+        const res = await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)['sendMessage']({
           chat_id: chatId,
           ...extra,
           text: chunk.html,
@@ -280,7 +280,7 @@ export class TelegramClient implements Client {
       } catch {
         // Fallback: send as plain text if HTML fails
         try {
-          const res = await (this.bot.api.raw as Record<string, Function>)['sendMessage']({
+          const res = await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)['sendMessage']({
             chat_id: chatId,
             ...extra,
             text: chunk.text,
@@ -302,12 +302,12 @@ export class TelegramClient implements Client {
     const chunk = chunks[0]; // edit can only update one message — use first chunk
     if (!chunk) return;
     try {
-      await (this.bot.api.raw as Record<string, Function>)['editMessageText']({
+      await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)['editMessageText']({
         chat_id: chatId, message_id: msgId, text: chunk.html, parse_mode: 'HTML',
       });
     } catch {
       try {
-        await (this.bot.api.raw as Record<string, Function>)['editMessageText']({
+        await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)['editMessageText']({
           chat_id: chatId, message_id: msgId, text: chunk.text, parse_mode: undefined,
         });
       } catch { /* ignore edit failures during streaming */ }
@@ -374,7 +374,7 @@ export class TelegramClient implements Client {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(params),
-          signal: AbortSignal.timeout(2000), // 2s timeout — don't block streaming
+          signal: globalThis.AbortSignal.timeout(2000), // 2s timeout — don't block streaming
         },
       );
       const json = (await resp.json()) as { ok?: boolean; description?: string };
@@ -499,7 +499,6 @@ export class TelegramClient implements Client {
       .catch(() => {});
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InlineQueryResult is complex; callers build ad-hoc objects
   async answerInlineQuery(queryId: string, results: Record<string, unknown>[]): Promise<void> {
     await this.bot.api
       .answerInlineQuery(queryId, results as unknown as Parameters<typeof this.bot.api.answerInlineQuery>[1], {
@@ -520,10 +519,10 @@ export class TelegramClient implements Client {
     text: string,
   ): Promise<{ message_id?: number } | null> {
     try {
-      return await (this.bot.api.raw as Record<string, Function>)[method]({ ...params, text: markdownToHtml(text) });
+      return await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)[method]({ ...params, text: markdownToHtml(text) });
     } catch {
       try {
-        return await (this.bot.api.raw as Record<string, Function>)[method]({
+        return await (this.bot.api.raw as Record<string, (...args: unknown[]) => unknown>)[method]({
           ...params,
           text: markdownToText(text),
           parse_mode: undefined,
