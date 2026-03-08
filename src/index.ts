@@ -150,8 +150,6 @@ async function main(): Promise<void> {
   const setCfg = (id: string, c: ChatConfig) => configs.set(id, c);
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
-  const MODE_KEYBOARD = [['⚡ Interactive', '📋 Plan', '🚀 Autopilot']];
-
   // Get or create session
   async function getSession(chatId: string): Promise<Session> {
     let s = sessions.get(chatId);
@@ -463,38 +461,6 @@ async function main(): Promise<void> {
 
     if (text.startsWith('/')) return handleCommand(text, key, messageId);
 
-    // Reply keyboard mode buttons
-    const modeMap: Record<string, string> = {
-      '⚡ Interactive': 'interactive',
-      '📋 Plan': 'plan',
-      '🚀 Autopilot': 'autopilot',
-    };
-    if (modeMap[text]) {
-      const c = cfg(key);
-      const newMode = modeMap[text];
-      if (c.mode === newMode) return; // already in this mode
-      c.mode = newMode;
-      c.autopilot = newMode === 'autopilot';
-      setCfg(key, c);
-      // Restart session with new mode
-      const s = sessions.get(key);
-      if (s?.alive) {
-        const sid = s.sessionId;
-        s.disconnect();
-        const ns = new Session();
-        await ns.resume(sid!, {
-          cwd: workDir(key),
-          binary: bin,
-          model: c.model,
-          autopilot: c.autopilot,
-          reasoningEffort: c.reasoningEffort !== 'none' ? (c.reasoningEffort as any) : undefined,
-        });
-        sessions.set(key, ns);
-      }
-      await client.sendMessage(key, '🔄 Mode: *' + text + '*');
-      return;
-    }
-
     let prompt = text;
     if (replyText) prompt = 'Context (replying to):\n"""\n' + replyText + '\n"""\n\nMy message: ' + text;
     await handlePrompt(key, messageId, prompt);
@@ -531,20 +497,7 @@ async function main(): Promise<void> {
         sessions.delete(chatId);
         sessionStore.delete(chatId); // Don't resume old session
         await getSession(chatId);
-        // Send reply keyboard with mode switcher
-        if (client.sendReplyKeyboard) {
-          await client.sendReplyKeyboard(
-            chatId,
-            cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`',
-            MODE_KEYBOARD,
-            { resize: true, placeholder: 'Ask Copilot anything...' },
-          );
-        } else {
-          await client.sendMessage(
-            chatId,
-            cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`',
-          );
-        }
+        await client.sendMessage(chatId, cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`');
         break;
       }
       case '/stop':
