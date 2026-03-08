@@ -12,7 +12,7 @@ import * as path from 'path';
 
 interface Config {
   botToken: string;
-  allowedUsers: string[];
+  allowedUsers: string[]; // empty = auto-pair first user
   workDir: string;
   copilotBinary?: string;
 }
@@ -28,17 +28,12 @@ function loadConfig(): Config {
 
   // Fall back to env vars
   const botToken = process.env.COPILOT_REMOTE_BOT_TOKEN;
-  const allowedUsers = process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',') ?? [];
+  const allowedUsers = process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [];
   const workDir = process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd();
   const copilotBinary = process.env.COPILOT_REMOTE_BINARY;
 
   if (!botToken) {
     console.error('Missing bot token. Set COPILOT_REMOTE_BOT_TOKEN or create .copilot-remote.json');
-    process.exit(1);
-  }
-
-  if (allowedUsers.length === 0) {
-    console.error('Missing allowed users. Set COPILOT_REMOTE_ALLOWED_USERS or create .copilot-remote.json');
     process.exit(1);
   }
 
@@ -55,7 +50,7 @@ async function main(): Promise<void> {
   console.log('╚══════════════════════════════════════╝');
   console.log('');
   console.log('Work dir:', config.workDir);
-  console.log('Allowed users:', config.allowedUsers.join(', '));
+  console.log('Allowed users:', config.allowedUsers.length > 0 ? config.allowedUsers.join(', ') : 'auto-pair first user');
   console.log('');
 
   // Initialize Telegram bridge

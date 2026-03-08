@@ -11,7 +11,7 @@ const MAX_MESSAGE_LENGTH = 4096;
 
 export interface TelegramConfig {
   botToken: string;
-  allowedUsers: string[]; // Telegram user IDs that can interact
+  allowedUsers: string[]; // empty = auto-pair first user
 }
 
 export class TelegramBridge {
@@ -19,9 +19,13 @@ export class TelegramBridge {
   private offset = 0;
   private polling = false;
   private onMessage: ((text: string, chatId: string, messageId: number) => void) | null = null;
+  private pairedUser: string | null = null;
 
   constructor(private config: TelegramConfig) {
     this.baseUrl = TELEGRAM_API + config.botToken;
+    if (config.allowedUsers.length > 0) {
+      this.pairedUser = config.allowedUsers[0];
+    }
   }
 
   setMessageHandler(handler: (text: string, chatId: string, messageId: number) => void): void {
@@ -30,7 +34,12 @@ export class TelegramBridge {
 
   async startPolling(): Promise<void> {
     this.polling = true;
-    console.log('[Telegram] Polling started');
+
+    if (this.pairedUser) {
+      console.log('[Telegram] Polling started — paired with user ' + this.pairedUser);
+    } else {
+      console.log('[Telegram] Polling started — waiting for first user to pair');
+    }
 
     while (this.polling) {
       try {
@@ -41,8 +50,15 @@ export class TelegramBridge {
             const msg = update.message;
             const userId = String(msg.from?.id);
 
-            if (!this.config.allowedUsers.includes(userId)) {
-              await this.sendMessage(msg.chat.id, '⛔ Unauthorized');
+            // Auto-pair first user
+            if (!this.pairedUser) {
+              this.pairedUser = userId;
+              console.log('[Telegram] Auto-paired with user ' + userId + ' (' + (msg.from?.first_name ?? '') + ')');
+              await this.sendMessage(msg.chat.id, '🔗 Paired! You now control this Copilot Remote instance.');
+            }
+
+            if (userId !== this.pairedUser) {
+              await this.sendMessage(msg.chat.id, '⛔ This instance is paired with another user.');
               continue;
             }
 
