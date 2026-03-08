@@ -15,19 +15,18 @@ function findBinary(name: string): string {
   try {
     return execSync('which ' + name, { encoding: 'utf-8' }).trim();
   } catch {
-    return name; // fall back to bare name
+    return name;
   }
 }
 
 interface Config {
   botToken: string;
-  allowedUsers: string[]; // empty = auto-pair first user
+  allowedUsers: string[];
   workDir: string;
   copilotBinary?: string;
 }
 
 function loadConfig(): Config {
-  // Try config file first, then env vars
   const configPath = path.join(process.cwd(), '.copilot-remote.json');
 
   if (fs.existsSync(configPath)) {
@@ -35,7 +34,6 @@ function loadConfig(): Config {
     return JSON.parse(raw);
   }
 
-  // Fall back to env vars
   const botToken = process.env.COPILOT_REMOTE_BOT_TOKEN;
   const allowedUsers = process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [];
   const workDir = process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd();
@@ -51,6 +49,7 @@ function loadConfig(): Config {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const copilotBin = config.copilotBinary ?? findBinary('copilot');
 
   console.log('╔══════════════════════════════════════╗');
   console.log('║       ⚡ Copilot Remote v0.1.0       ║');
@@ -59,101 +58,83 @@ async function main(): Promise<void> {
   console.log('╚══════════════════════════════════════╝');
   console.log('');
   console.log('Work dir:', config.workDir);
+  console.log('Binary:', copilotBin);
   console.log('Allowed users:', config.allowedUsers.length > 0 ? config.allowedUsers.join(', ') : 'auto-pair first user');
   console.log('');
 
-  // Initialize Telegram bridge
   const telegram = new TelegramBridge({
     botToken: config.botToken,
     allowedUsers: config.allowedUsers,
   });
 
-  // Session state per chat
+  // Per-chat session + work directory
   const sessions = new Map<string, CopilotSession>();
-  let activeChatId: string | null = null;
+  const chatWorkDirs = new Map<string, string>();
 
-  // Command handlers
-  telegram.setMessageHandler(async (text: string, chatId: string, messageId: number) => {
+  telegram.setMessageHandler(async (text: string, chatId: string, _messageId: number) => {
     console.log('[Message] ' + chatId + ': ' + text);
 
-    // Handle commands
     if (text.startsWith('/')) {
-      await handleCommand(text, chatId, messageId);
+      await handleCommand(text, chatId);
       return;
     }
 
-    // Get or prompt for session
-    const session = sessions.get(chatId);
+    // Get or create session
+    let session = sessions.get(chatId);
     if (!session || !session.alive) {
-      await telegram.sendMessage(chatId, [
-        '⚡ No active Copilot session.',
-        '',
-        'Commands:',
-        '`/start [dir]` — Start a new session',
-        '`/status` — Check session status',
-        '`/stop` — Kill current session',
-        '`/yes` — Approve tool action',
-        '`/no` — Deny tool action',
-      ].join('\n'));
+      // Auto-start session on first message
+      session = new CopilotSession();
+      const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
+
+      try {
+        await session.start({ cwd: workDir, binary: copilotBin });
+        sessions.set(chatId, session);
+      } catch (err) {
+        await telegram.sendMessage(chatId, '❌ Failed to start: ' + String(err));
+        return;
+      }
+    }
+
+    if (session.busy) {
+      await telegram.sendMessage(chatId, '⏳ Still processing previous prompt...');
       return;
     }
 
-    // Send to Copilot
+    // Send prompt to Copilot
     await telegram.sendTyping(chatId);
-    session.send(text);
+
+    try {
+      const response = await session.send(text);
+      if (response) {
+        await telegram.sendMessage(chatId, response);
+      } else {
+        await telegram.sendMessage(chatId, '(no output)');
+      }
+    } catch (err) {
+      await telegram.sendMessage(chatId, '❌ ' + String(err));
+    }
   });
 
-  async function handleCommand(text: string, chatId: string, messageId: number): Promise<void> {
+  async function handleCommand(text: string, chatId: string): Promise<void> {
     const [cmd, ...args] = text.split(' ');
 
     switch (cmd) {
       case '/start': {
         const workDir = args[0] ?? config.workDir;
+        chatWorkDirs.set(chatId, workDir);
 
-        // Kill existing session if any
         const existing = sessions.get(chatId);
         if (existing?.alive) {
           existing.kill();
         }
 
-        await telegram.sendMessage(chatId, '🚀 Starting Copilot session in `' + workDir + '`...');
-
         const session = new CopilotSession();
-        sessions.set(chatId, session);
-        activeChatId = chatId;
-
-        // Wire up events
-        session.on('response', async (response: string) => {
-          console.log('[Response] ' + response.slice(0, 100) + '...');
-          await telegram.sendMessage(chatId, response);
-        });
-
-        session.on('waiting', async () => {
-          // Copilot is waiting for input — could show a subtle indicator
-        });
-
-        session.on('exit', async (code: number) => {
-          await telegram.sendMessage(chatId, '💀 Copilot session exited (code ' + code + ')');
-          sessions.delete(chatId);
-        });
-
-        session.on('error', async (err: Error) => {
-          await telegram.sendMessage(chatId, '❌ Error: ' + err.message);
-        });
-
         try {
-          // Resolve copilot binary path
-          const copilotBin = config.copilotBinary ?? findBinary('copilot');
-          console.log('[Session] Using binary:', copilotBin);
-
-          await session.start({
-            cwd: workDir,
-            shell: copilotBin,
-          });
-          await telegram.sendMessage(chatId, '✅ Copilot session ready. Send a prompt to get started.');
+          await session.start({ cwd: workDir, binary: copilotBin });
+          sessions.set(chatId, session);
+          await telegram.sendMessage(chatId, '✅ Ready in `' + workDir + '`\n\nSend a prompt to get started.');
         } catch (err) {
           await telegram.sendMessage(chatId, '❌ Failed to start: ' + String(err));
-          sessions.delete(chatId);
         }
         break;
       }
@@ -170,12 +151,29 @@ async function main(): Promise<void> {
         break;
       }
 
+      case '/cd': {
+        const dir = args[0];
+        if (!dir) {
+          const current = chatWorkDirs.get(chatId) ?? config.workDir;
+          await telegram.sendMessage(chatId, '📂 ' + current);
+        } else {
+          chatWorkDirs.set(chatId, dir);
+          // Restart session in new dir
+          const existing = sessions.get(chatId);
+          if (existing?.alive) existing.kill();
+          sessions.delete(chatId);
+          await telegram.sendMessage(chatId, '📂 Switched to `' + dir + '`');
+        }
+        break;
+      }
+
       case '/status': {
         const session = sessions.get(chatId);
+        const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
         if (session?.alive) {
-          await telegram.sendMessage(chatId, '✅ Session is running.');
+          await telegram.sendMessage(chatId, '✅ Active in `' + workDir + '`' + (session.busy ? ' (busy)' : ''));
         } else {
-          await telegram.sendMessage(chatId, '⚪ No active session.');
+          await telegram.sendMessage(chatId, '⚪ No active session. Send a message to auto-start.');
         }
         break;
       }
@@ -183,32 +181,16 @@ async function main(): Promise<void> {
       case '/yes':
       case '/y': {
         const session = sessions.get(chatId);
-        if (session?.alive) {
-          session.approve();
-        } else {
-          await telegram.sendMessage(chatId, 'No active session.');
-        }
+        if (session?.alive) session.approve();
+        else await telegram.sendMessage(chatId, 'No active session.');
         break;
       }
 
       case '/no':
       case '/n': {
         const session = sessions.get(chatId);
-        if (session?.alive) {
-          session.deny();
-        } else {
-          await telegram.sendMessage(chatId, 'No active session.');
-        }
-        break;
-      }
-
-      case '/raw': {
-        // Send raw text to PTY (for debugging)
-        const session = sessions.get(chatId);
-        if (session?.alive) {
-          const raw = args.join(' ');
-          session.send(raw);
-        }
+        if (session?.alive) session.deny();
+        else await telegram.sendMessage(chatId, 'No active session.');
         break;
       }
 
@@ -217,39 +199,33 @@ async function main(): Promise<void> {
         await telegram.sendMessage(chatId, [
           '⚡ *Copilot Remote*',
           '',
-          '`/start [dir]` — Start Copilot in directory',
+          '`/start [dir]` — Start in directory',
           '`/stop` — Kill session',
-          '`/status` — Check if session is alive',
+          '`/cd [dir]` — Change/show working directory',
+          '`/status` — Session status',
           '`/yes` `/y` — Approve tool action',
           '`/no` `/n` — Deny tool action',
-          '`/raw <text>` — Send raw input',
           '`/help` — This message',
           '',
-          'Or just type a prompt to send to Copilot.',
+          'Or just type a prompt — session auto-starts.',
         ].join('\n'));
         break;
     }
   }
 
-  // Handle graceful shutdown
   process.on('SIGINT', () => {
     console.log('\nShutting down...');
     telegram.stopPolling();
-    for (const [, session] of sessions) {
-      session.kill();
-    }
+    for (const [, session] of sessions) session.kill();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
     telegram.stopPolling();
-    for (const [, session] of sessions) {
-      session.kill();
-    }
+    for (const [, session] of sessions) session.kill();
     process.exit(0);
   });
 
-  // Start polling
   await telegram.startPolling();
 }
 

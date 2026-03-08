@@ -1,8 +1,8 @@
 // ============================================================
-// Copilot Remote — PTY Session Manager
+// Copilot Remote — Session Manager
 // ============================================================
-// Spawns and manages a Copilot CLI session in a pseudo-terminal.
-// Handles input/output, ANSI stripping, and response detection.
+// Spawns Copilot CLI per-prompt in non-interactive mode.
+// Each message = one copilot invocation with streaming output.
 // ============================================================
 
 import * as pty from 'node-pty';
@@ -12,196 +12,122 @@ import * as fs from 'fs';
 
 export interface SessionOptions {
   cwd: string;
-  shell?: string;
+  binary?: string;
   env?: Record<string, string>;
 }
 
 export class CopilotSession extends EventEmitter {
-  private ptyProcess: pty.IPty | null = null;
-  private buffer = '';
-  private responseBuffer = '';
-  private collecting = false;
-  private collectTimer: NodeJS.Timeout | null = null;
+  private proc: pty.IPty | null = null;
   private _alive = false;
+  private _busy = false;
+  private cwd!: string;
+  private binary!: string;
+  private sessionEnv!: Record<string, string>;
 
-  private static PROMPT_PATTERNS = [
-    /❯\s*$/,
-    /copilot>\s*$/,
-    /\?\s*\(y\/n\)\s*$/i,
-    /Unlimited reqs\.\s*$/,
-    /switch mode\s.*reqs\.\s*$/,
-    /Type @ to mention files/,
-    /for commands, or \? for shortcuts/,
-  ];
-
-  private static STREAMING_PATTERNS = [
-    /⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏/,
-    /thinking\.\.\./i,
-    /running\.\.\./i,
-  ];
+  constructor() {
+    super();
+  }
 
   get alive(): boolean {
     return this._alive;
   }
 
+  get busy(): boolean {
+    return this._busy;
+  }
+
   async start(options: SessionOptions): Promise<void> {
-    const copilotBin = options.shell ?? 'copilot';
-    const userShell = process.env.SHELL ?? '/bin/zsh';
-
-    console.log('[Session] Spawning: ' + userShell + ' -l -c ' + copilotBin);
-    console.log('[Session] CWD: ' + options.cwd);
-
     if (!fs.existsSync(options.cwd)) {
       throw new Error('Working directory does not exist: ' + options.cwd);
     }
 
-    try {
-      this.ptyProcess = pty.spawn(userShell, ['-l', '-c', copilotBin], {
-        name: 'xterm-256color',
-        cols: 120,
-        rows: 40,
-        cwd: options.cwd,
-        env: { ...process.env, ...options.env } as Record<string, string>,
-      });
-    } catch (err) {
-      console.error('[Session] pty.spawn failed:', err);
-      throw err;
-    }
-
-    console.log('[Session] PTY spawned, pid: ' + this.ptyProcess.pid);
+    this.cwd = options.cwd;
+    this.binary = options.binary ?? 'copilot';
+    this.sessionEnv = { ...process.env, ...options.env } as Record<string, string>;
     this._alive = true;
 
-    this.ptyProcess.onData((data: string) => {
-      const cleaned = stripAnsi(data);
-      this.buffer += cleaned;
-      console.log('[Session] out: ' + JSON.stringify(cleaned.slice(0, 200)));
-      this.emit('output', cleaned);
-
-      if (this.collecting) {
-        this.responseBuffer += cleaned;
-        this.resetCollectTimer();
-      }
-
-      if (this.isPrompt(this.buffer)) {
-        if (this.collecting) {
-          this.finishCollecting();
-        } else {
-          this.emit('waiting');
-        }
-      }
-    });
-
-    this.ptyProcess.onExit(({ exitCode }) => {
-      console.log('[Session] Process exited with code: ' + exitCode);
-      this._alive = false;
-      this.emit('exit', exitCode);
-    });
-
-    await this.waitForPrompt(60_000);
+    console.log('[Session] Ready — binary: ' + this.binary + ', cwd: ' + this.cwd);
   }
 
-  send(text: string): void {
-    if (!this.ptyProcess || !this._alive) {
-      throw new Error('Session not running');
+  async send(prompt: string): Promise<string> {
+    if (!this._alive) {
+      throw new Error('Session not started');
+    }
+    if (this._busy) {
+      throw new Error('Session is busy processing a prompt');
     }
 
-    this.buffer = '';
-    this.responseBuffer = '';
-    this.collecting = true;
+    this._busy = true;
+    const userShell = process.env.SHELL ?? '/bin/zsh';
 
-    this.ptyProcess.write(text + '\r');
+    // Build command: copilot -p "prompt" with TUI disabled
+    const escaped = prompt.replace(/'/g, "'\\''");
+    const cmd = this.binary + " -p '" + escaped + "' --no-alt-screen --no-color -s --allow-all-tools";
+
+    console.log('[Session] Running: ' + cmd.slice(0, 100) + '...');
+
+    return new Promise((resolve, reject) => {
+      let output = '';
+      let lastChunk = '';
+
+      try {
+        this.proc = pty.spawn(userShell, ['-l', '-c', cmd], {
+          name: 'dumb',
+          cols: 120,
+          rows: 40,
+          cwd: this.cwd,
+          env: this.sessionEnv,
+        });
+      } catch (err) {
+        this._busy = false;
+        reject(err);
+        return;
+      }
+
+      console.log('[Session] Spawned pid: ' + this.proc.pid);
+
+      this.proc.onData((data: string) => {
+        const cleaned = stripAnsi(data);
+        output += cleaned;
+        lastChunk = cleaned;
+
+        // Emit chunks for streaming to Telegram
+        if (cleaned.trim()) {
+          this.emit('output', cleaned);
+        }
+      });
+
+      this.proc.onExit(({ exitCode }) => {
+        console.log('[Session] Prompt finished, exit code: ' + exitCode);
+        this._busy = false;
+        this.proc = null;
+
+        const response = output.trim();
+        if (exitCode === 0 || response) {
+          resolve(response);
+        } else {
+          reject(new Error('Copilot exited with code ' + exitCode));
+        }
+      });
+    });
   }
 
   approve(): void {
-    this.send('y');
+    this.proc?.write('y\r');
   }
 
   deny(): void {
-    this.send('n');
+    this.proc?.write('n\r');
   }
 
   resize(cols: number, rows: number): void {
-    this.ptyProcess?.resize(cols, rows);
+    this.proc?.resize(cols, rows);
   }
 
   kill(): void {
     this._alive = false;
-    this.ptyProcess?.kill();
-    this.ptyProcess = null;
-  }
-
-  private isPrompt(text: string): boolean {
-    const trimmed = text.trimEnd();
-    const lastLine = trimmed.split('\n').pop() ?? '';
-    return CopilotSession.PROMPT_PATTERNS.some(p => p.test(lastLine));
-  }
-
-  private isStreaming(text: string): boolean {
-    return CopilotSession.STREAMING_PATTERNS.some(p => p.test(text));
-  }
-
-  private resetCollectTimer(): void {
-    if (this.collectTimer) {
-      clearTimeout(this.collectTimer);
-    }
-    this.collectTimer = setTimeout(() => {
-      if (this.collecting && !this.isStreaming(this.responseBuffer)) {
-        this.finishCollecting();
-      }
-    }, 1500);
-  }
-
-  private finishCollecting(): void {
-    this.collecting = false;
-    if (this.collectTimer) {
-      clearTimeout(this.collectTimer);
-      this.collectTimer = null;
-    }
-
-    const response = this.cleanResponse(this.responseBuffer);
-    if (response.trim()) {
-      this.emit('response', response);
-    }
-    this.responseBuffer = '';
-  }
-
-  private cleanResponse(raw: string): string {
-    const lines = raw.split('\n');
-    const content = lines.slice(1);
-
-    while (content.length > 0) {
-      const last = content[content.length - 1].trim();
-      if (last === '' || last === '❯' || last === '>' || last.endsWith('(y/n)')) {
-        content.pop();
-      } else {
-        break;
-      }
-    }
-
-    return content.join('\n').trim();
-  }
-
-  private waitForPrompt(timeoutMs: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for Copilot CLI prompt'));
-      }, timeoutMs);
-
-      const check = () => {
-        if (this.isPrompt(this.buffer)) {
-          clearTimeout(timeout);
-          this.removeListener('output', check);
-          resolve();
-        }
-      };
-
-      this.on('output', check);
-
-      if (this.isPrompt(this.buffer)) {
-        clearTimeout(timeout);
-        this.removeListener('output', check);
-        resolve();
-      }
-    });
+    this._busy = false;
+    this.proc?.kill();
+    this.proc = null;
   }
 }
