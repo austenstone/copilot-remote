@@ -313,11 +313,14 @@ export class Session extends EventEmitter {
     this.emit('permission_request', req);
     log.debug('Permission prompt (waiting for user):', req.kind);
     return new Promise<PermissionRequestResult>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
       const handler = (approved: boolean) => {
+        if (timer) { clearTimeout(timer); timer = null; }
         resolve({ kind: approved ? 'approved' : 'denied-interactively-by-user' } as PermissionRequestResult);
       };
       this.once('permission_response', handler);
-      setTimeout(() => {
+      timer = setTimeout(() => {
+        timer = null;
         this.off('permission_response', handler);
         this.emit('permission_timeout');
         resolve({ kind: 'denied-interactively-by-user' } as PermissionRequestResult);
@@ -329,11 +332,14 @@ export class Session extends EventEmitter {
     this.emit('user_input_request', req);
     log.debug('User input request:', req.question);
     return new Promise<{ answer: string; wasFreeform: boolean }>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
       const handler = (answer: string) => {
+        if (timer) { clearTimeout(timer); timer = null; }
         resolve({ answer, wasFreeform: !req.choices?.length });
       };
       this.once('user_input_response', handler);
-      setTimeout(() => {
+      timer = setTimeout(() => {
+        timer = null;
         this.off('user_input_response', handler);
         resolve({ answer: '', wasFreeform: true }); // Empty response on timeout
       }, 300_000); // 5 min timeout for user questions
