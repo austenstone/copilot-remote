@@ -82,8 +82,8 @@ async function main(): Promise<void> {
   }
   const defaultConfig: ChatConfig = {
     showUsage: false,
-    showThinking: true,
-    showTools: true,
+    showThinking: false,
+    showTools: false,
     allowAllTools: false,
     model: 'claude-sonnet-4',
   };
