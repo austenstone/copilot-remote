@@ -2,6 +2,7 @@
 import { Session } from './session.js';
 import type { Client } from './client.js';
 import { TelegramClient } from './clients/telegram.js';
+import { SessionStore } from './store.js';
 import { log } from './log.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -90,6 +91,7 @@ async function main(): Promise<void> {
   const workDirs = new Map<string, string>();
   const configs = new Map<string, ChatConfig>();
   const pendingPerms = new Map<number, string>();
+  const sessionStore = new SessionStore();
   let cachedModels: string[] = [];
 
   const cfg = (id: string) => configs.get(id) ?? { ...defaultCfg };
@@ -100,16 +102,43 @@ async function main(): Promise<void> {
   async function getSession(chatId: string): Promise<Session> {
     let s = sessions.get(chatId);
     if (s?.alive) return s;
+
     s = new Session();
     const c = cfg(chatId);
-    await s.start({
+    const opts = {
       cwd: workDir(chatId),
       binary: bin,
       model: c.model,
       autopilot: c.autopilot,
       agent: c.agent ?? undefined,
-    });
-    s.autopilot = c.autopilot;
+    };
+
+    // Try to resume a saved session
+    const saved = sessionStore.get(chatId);
+    if (saved?.sessionId) {
+      try {
+        await s.resume(saved.sessionId, opts);
+        sessionStore.touch(chatId);
+        sessions.set(chatId, s);
+        log.info('Resumed session', saved.sessionId, 'for', chatId);
+        return s;
+      } catch (e) {
+        log.debug('Resume failed, creating new:', e);
+        sessionStore.delete(chatId);
+      }
+    }
+
+    // Create new session
+    await s.start(opts);
+    if (s.sessionId) {
+      sessionStore.set(chatId, {
+        sessionId: s.sessionId,
+        cwd: workDir(chatId),
+        model: c.model,
+        createdAt: Date.now(),
+        lastUsed: Date.now(),
+      });
+    }
     sessions.set(chatId, s);
     return s;
   }
@@ -359,6 +388,7 @@ async function main(): Promise<void> {
         const old = sessions.get(chatId);
         if (old?.alive) old.kill();
         sessions.delete(chatId);
+        sessionStore.delete(chatId); // Don't resume old session
         await getSession(chatId);
         await client.sendMessage(chatId, cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`');
         break;
@@ -366,9 +396,31 @@ async function main(): Promise<void> {
       case '/stop':
       case '/clear': {
         const s = sessions.get(chatId);
-        if (s?.alive) s.kill();
+        if (s?.alive) {
+          // Disconnect preserves session on disk for resume
+          await s.disconnect();
+        }
         sessions.delete(chatId);
-        await client.sendMessage(chatId, '🛑 Session cleared.');
+        await client.sendMessage(chatId, '🛑 Session paused. Send a message to resume.');
+        break;
+      }
+      case '/resume': {
+        const saved = sessionStore.list();
+        if (!saved.length) {
+          await client.sendMessage(chatId, 'No saved sessions.');
+          break;
+        }
+        const lines = saved.slice(0, 10).map(([id, e]) => {
+          const age = Math.round((Date.now() - e.lastUsed) / 60000);
+          const ageStr = age < 60 ? age + 'm ago' : Math.round(age / 60) + 'h ago';
+          return (
+            '• `' + e.cwd.replace(process.env.HOME ?? '', '~') + '` — ' + ageStr + (id === chatId ? ' *(current)*' : '')
+          );
+        });
+        await client.sendMessage(
+          chatId,
+          '📋 *Sessions*\n' + lines.join('\n') + '\n\nSend a message to auto-resume your session.',
+        );
         break;
       }
       case '/cd': {
@@ -631,10 +683,6 @@ async function main(): Promise<void> {
         }
         break;
       }
-      case '/resume': {
-        await client.sendMessage(chatId, '🔄 Not yet implemented. Use `/new`.');
-        break;
-      }
       case '/config': {
         await sendConfigMenu(chatId);
         break;
@@ -863,18 +911,27 @@ async function main(): Promise<void> {
       const c = cfg(chatId);
       c.autopilot = newMode === 'autopilot';
       setCfg(chatId, c);
-      // Restart session with correct permission handler
+      // Disconnect + resume with correct permission handler (preserves context)
       const old = sessions.get(chatId);
-      if (old?.alive) old.kill();
+      const savedId = old?.sessionId ?? sessionStore.get(chatId)?.sessionId;
+      if (old?.alive) await old.disconnect();
       sessions.delete(chatId);
-      await getSession(chatId);
-      // Set mode after restart (autopilot is handled by session config, plan needs explicit set)
-      if (newMode === 'plan') {
-        const s = sessions.get(chatId);
-        if (s?.alive)
-          await s.setMode('plan').catch(() => {
-            /* ignore */
-          });
+      if (savedId) {
+        // Resume same session with new config
+        const s = new Session();
+        try {
+          await s.resume(savedId, { cwd: workDir(chatId), binary: bin, model: c.model, autopilot: c.autopilot });
+          sessions.set(chatId, s);
+          if (newMode === 'plan')
+            await s.setMode('plan').catch(() => {
+              /* ignore */
+            });
+        } catch {
+          sessionStore.delete(chatId);
+          await getSession(chatId);
+        }
+      } else {
+        await getSession(chatId);
       }
       return sendConfigMenu(chatId, msgId);
     }

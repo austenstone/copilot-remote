@@ -264,6 +264,68 @@ export class Session extends EventEmitter {
     this.session.on((e: SessionEvent) => this.handleEvent(e));
   }
 
+  // ── Session management ──
+
+  async disconnect(): Promise<void> {
+    // Disconnect but preserve session data on disk for resume
+    this._alive = false;
+    this._busy = false;
+    this.queue = [];
+    try {
+      await this.session?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.session = null;
+    // Keep client alive for resume
+    return;
+  }
+
+  async resume(sessionId: string, opts: SessionOptions): Promise<void> {
+    this.cwd = opts.cwd;
+    this._autopilot = opts.autopilot ?? false;
+
+    if (!this.client) {
+      const clientOpts: Record<string, any> = { useStdio: true };
+      if (opts.binary) clientOpts.cliPath = opts.binary;
+      this.client = new CopilotClient(clientOpts);
+      await this.client.start();
+    }
+
+    this.session = await this.client.resumeSession(sessionId, {
+      clientName: 'copilot-remote',
+      streaming: true,
+      workingDirectory: this.cwd,
+      systemMessage: {
+        mode: 'append',
+        content: [
+          'You are being accessed via a Telegram bot bridge called copilot-remote.',
+          'The user is chatting with you from their phone. Keep responses concise but complete.',
+          'You have full access to the filesystem, shell, and all tools. Use them proactively.',
+          "When asked to do something, do it — don't just explain how.",
+          'Show your work: mention files you read, commands you ran, changes you made.',
+          'Format responses with markdown (bold, code blocks, lists) — it renders in Telegram.',
+        ].join('\n'),
+      },
+      onPermissionRequest: this._autopilot ? approveAll : (req: PermissionRequest) => this.handlePermission(req),
+    });
+    this._alive = true;
+    this.session.on((e: SessionEvent) => this.handleEvent(e));
+  }
+
+  async listSessions(): Promise<any[]> {
+    if (!this.client) return [];
+    return this.client.listSessions();
+  }
+
+  async getLastSessionId(): Promise<string | undefined> {
+    return this.client?.getLastSessionId();
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.client?.deleteSession(id);
+  }
+
   async kill() {
     this._alive = false;
     this._busy = false;
