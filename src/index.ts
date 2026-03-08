@@ -636,7 +636,6 @@ async function main(): Promise<void> {
   async function sendConfigMenu(chatId: string, editId?: number) {
     const c = cfg(chatId);
     const s = sessions.get(chatId);
-    const t = (v: boolean) => (v ? '✅' : '⬜');
 
     // Get current mode
     let mode = 'interactive';
@@ -662,22 +661,32 @@ async function main(): Promise<void> {
         { text: modeLabel('plan')!, data: 'mode:plan' },
         { text: modeLabel('autopilot')!, data: 'mode:autopilot' },
       ],
-      [
-        { text: t(c.showThinking) + ' Thinking', data: 'cfg:showThinking' },
-        { text: t(c.showTools) + ' Tools', data: 'cfg:showTools' },
-      ],
-      [
-        { text: t(c.showUsage) + ' Usage', data: 'cfg:showUsage' },
-        { text: t(c.showReactions) + ' Reactions', data: 'cfg:showReactions' },
-      ],
       [{ text: '🤖 Change Model', data: 'cfg:modelPicker' }],
       [{ text: '🔒 Tool Security', data: 'cfg:security' }],
+      [{ text: '🎨 Display', data: 'cfg:display' }],
     ];
     if (editId) {
       await client.editButtons(chatId, editId, text, buttons);
     } else {
       await client.sendButtons(chatId, text, buttons);
     }
+  }
+
+  async function sendDisplayMenu(chatId: string, editId: number) {
+    const c = cfg(chatId);
+    const t = (v: boolean) => (v ? '✅' : '⬜');
+    const buttons = [
+      [
+        { text: t(c.showThinking) + ' Thinking', data: 'dsp:showThinking' },
+        { text: t(c.showTools) + ' Tools', data: 'dsp:showTools' },
+      ],
+      [
+        { text: t(c.showUsage) + ' Usage', data: 'dsp:showUsage' },
+        { text: t(c.showReactions) + ' Reactions', data: 'dsp:showReactions' },
+      ],
+      [{ text: '← Back', data: 'cfg:back' }],
+    ];
+    await client.editButtons(chatId, editId, '🎨 *Display*\nToggle what shows in responses:', buttons);
   }
 
   async function sendSecurityMenu(chatId: string, editId: number) {
@@ -764,6 +773,7 @@ async function main(): Promise<void> {
       }
       return;
     }
+    if (data === 'cfg:display') return sendDisplayMenu(chatId, msgId);
     if (data === 'cfg:security') return sendSecurityMenu(chatId, msgId);
     if (data === 'cfg:modelPicker') return sendModelPicker(chatId, msgId);
     if (data === 'cfg:back') return sendConfigMenu(chatId, msgId);
@@ -779,6 +789,15 @@ async function main(): Promise<void> {
           /* ignore */
         }
       return sendConfigMenu(chatId, msgId);
+    }
+    if (data.startsWith('dsp:')) {
+      const key = data.slice(4) as keyof ChatConfig;
+      const c = cfg(chatId);
+      if (key in c && typeof (c as any)[key] === 'boolean') {
+        (c as any)[key] = !(c as any)[key];
+        setCfg(chatId, c);
+      }
+      return sendDisplayMenu(chatId, msgId);
     }
     if (data.startsWith('sec:')) {
       const kind = data.slice(4) as PermKind;
