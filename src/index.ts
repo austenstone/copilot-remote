@@ -1605,6 +1605,15 @@ async function main(): Promise<void> {
   await client.start();
 }
 
+// Global error handlers — prevent crashes from unhandled rejections (e.g. ERR_STREAM_DESTROYED)
+process.on('uncaughtException', (err) => {
+  log.error('Uncaught exception:', err.message);
+  // Don't exit — let LaunchAgent handle restarts for truly fatal errors
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('Unhandled rejection:', reason instanceof Error ? reason.message : String(reason));
+});
+
 main().catch((e) => {
   log.error('Fatal:', e);
   process.exit(1);

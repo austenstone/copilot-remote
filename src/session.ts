@@ -440,26 +440,38 @@ export class Session extends EventEmitter {
       if (attachments?.length) sendOpts.attachments = attachments;
 
       // Idle timeout: reset on every SDK event so long-running tool calls don't get killed.
-      // Absolute timeout at 10 min, idle timeout at 2 min of no activity.
       const ABSOLUTE_TIMEOUT = 600_000; // 10 min
       const IDLE_TIMEOUT = 120_000; // 2 min of no events
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      let idleReject: ((err: Error) => void) | undefined;
+      let idleActive = true;
+      const eventHandler = () => {
+        if (!idleActive) return;
+        if (idleTimer) clearTimeout(idleTimer);
+        if (idleReject) {
+          idleTimer = setTimeout(() => idleReject?.(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
+        }
+      };
       const idlePromise = new Promise<never>((_resolve, reject) => {
-        const resetIdle = () => {
-          if (idleTimer) clearTimeout(idleTimer);
-          idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
-        };
-        resetIdle();
-        // Reset on any SDK event
-        this.session!.on((/* event */) => { resetIdle(); });
+        idleReject = reject;
+        idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
+        this.session!.on(eventHandler);
       });
+      // Prevent unhandled rejection when race resolves normally
+      idlePromise.catch(() => {});
 
-      const result = await Promise.race([
-        this.session!.sendAndWait(sendOpts, ABSOLUTE_TIMEOUT),
-        errorPromise,
-        idlePromise,
-      ]);
-      if (idleTimer) clearTimeout(idleTimer);
+      let result;
+      try {
+        result = await Promise.race([
+          this.session!.sendAndWait(sendOpts, ABSOLUTE_TIMEOUT),
+          errorPromise,
+          idlePromise,
+        ]);
+      } finally {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleReject = undefined;
+        idleActive = false; // neuter the event handler (SDK has no .off())
+      }
       log.debug('sendAndWait result:', JSON.stringify(result).slice(0, 500));
 
       const resultObj = result as Record<string, unknown>;
