@@ -637,8 +637,10 @@ async function main(): Promise<void> {
       }
 
       // Finalize: send the complete response
+      // Always clean up streaming message if we're sending a new one
       if (draftId && useDraft) {
         // Draft mode: draft auto-disappears, send real message
+        if (streamMsgId) await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       } else if (streamMsgId && final.length <= 4096) {
         await client.editMessage(chatId, streamMsgId, final);
