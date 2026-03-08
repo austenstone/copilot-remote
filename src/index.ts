@@ -557,8 +557,21 @@ async function main(): Promise<void> {
       session.off('user_input_request', onUserInput);
     };
 
+    let res: { content: string };
     try {
-      const res = await session.send(prompt);
+      res = await session.send(prompt);
+    } catch (sendErr) {
+      cleanup();
+      clearInterval(typingInterval);
+      // Kill the broken session so it doesn't linger
+      try { session.kill(); } catch { /* ignore */ }
+      sessions.delete(chatId);
+      sessionStore.delete(chatId);
+      await react('😱');
+      await client.sendMessage(chatId, '❌ Session error: ' + String(sendErr) + '\n\nUse /new to start a fresh session.');
+      return;
+    }
+    try {
       cleanup();
       clearInterval(typingInterval);
 
