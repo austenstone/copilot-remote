@@ -36,6 +36,7 @@ interface ToolEvent {
   arguments?: Record<string, string>;
   success?: boolean;
   detailedContent?: string;
+  images?: string[]; // base64 image data from tool results
 }
 
 /** User input request from the agent */
@@ -272,6 +273,14 @@ async function main(): Promise<void> {
     };
   }
 
+  if (client.sendPhoto) {
+    const origSendPhoto = client.sendPhoto.bind(client);
+    client.sendPhoto = (key: string, fileOrUrl: string, caption?: string) => {
+      const [cid, tid] = resolveKey(key);
+      return origSendPhoto(cid, fileOrUrl, caption, tid);
+    };
+  }
+
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
   // Get or create session
@@ -469,6 +478,17 @@ async function main(): Promise<void> {
       if (!c.showTools || !toolLines.length) return;
       toolLines[toolLines.length - 1] += t.success !== false ? ' ✓' : ' ✗';
       schedEdit();
+
+      // Send any generated images as Telegram photos
+      if (t.images?.length && client.sendPhoto) {
+        for (const base64 of t.images) {
+          const buffer = Buffer.from(base64, 'base64');
+          const tmpPath = '/tmp/copilot-remote/tool-image-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '.png';
+          fs.mkdirSync('/tmp/copilot-remote', { recursive: true });
+          fs.writeFileSync(tmpPath, buffer);
+          client.sendPhoto(chatId, tmpPath).catch(() => {});
+        }
+      }
     };
     const onPerm = async (req: PermissionRequest) => {
       const p = (req as PermissionRequest & { permissionRequest?: PermissionRequest }).permissionRequest ?? req;
