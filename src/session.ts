@@ -297,7 +297,8 @@ export class Session extends EventEmitter {
         break;
       }
       case 'permission.requested':
-        this.emit('permission_request', d);
+        // Don't emit here — handlePermission() already emits permission_request
+        // and waits for the response. Emitting from both causes duplicate prompts.
         break;
       case 'session.idle':
         this.emit('idle');
