@@ -37,6 +37,8 @@ export class TelegramBridge {
 
     if (this.pairedUser) {
       console.log('[Telegram] Polling started — paired with user ' + this.pairedUser);
+      // Notify paired user we're online
+      await this.sendMessage(this.pairedUser, '⚡ Copilot Remote is online.').catch(() => {});
     } else {
       console.log('[Telegram] Polling started — waiting for first user to pair');
     }

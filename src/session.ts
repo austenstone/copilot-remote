@@ -55,23 +55,33 @@ export class CopilotSession extends EventEmitter {
 
   async start(options: SessionOptions): Promise<void> {
     const copilotBin = options.shell ?? 'copilot';
-
-    // Spawn via login shell to pick up PATH/nvm/etc
     const userShell = process.env.SHELL ?? '/bin/zsh';
 
-    this.ptyProcess = pty.spawn(userShell, ['-l', '-c', copilotBin], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 40,
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env } as Record<string, string>,
-    });
+    console.log('[Session] Spawning: ' + userShell + ' -l -c ' + copilotBin);
+    console.log('[Session] CWD: ' + options.cwd);
+    console.log('[Session] Shell: ' + userShell);
+
+    try {
+      this.ptyProcess = pty.spawn(userShell, ['-l', '-c', copilotBin], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        cwd: options.cwd,
+        env: { ...process.env, ...options.env } as Record<string, string>,
+      });
+    } catch (err) {
+      console.error('[Session] pty.spawn failed:', err);
+      throw err;
+    }
+
+    console.log('[Session] PTY spawned, pid: ' + this.ptyProcess.pid);
 
     this._alive = true;
 
     this.ptyProcess.onData((data: string) => {
       const cleaned = stripAnsi(data);
       this.buffer += cleaned;
+      console.log('[Session] raw: ' + JSON.stringify(cleaned.slice(0, 200)));
       this.emit('output', cleaned);
 
       // Accumulate response text
@@ -91,6 +101,7 @@ export class CopilotSession extends EventEmitter {
     });
 
     this.ptyProcess.onExit(({ exitCode }) => {
+      console.log('[Session] Process exited with code: ' + exitCode);
       this._alive = false;
       this.emit('exit', exitCode);
     });
