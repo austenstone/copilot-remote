@@ -162,7 +162,7 @@ async function main(): Promise<void> {
 
       if (!streamMsgId) {
         if (display.length < MIN_INITIAL_CHARS) return;
-        streamMsgId = await telegram.sendMessage(chatId, display);
+        streamMsgId = await telegram.sendMessage(chatId, display, { replyTo: messageId, disableLinkPreview: true });
       } else {
         await telegram.editMessage(chatId, streamMsgId, display);
       }
@@ -294,9 +294,9 @@ async function main(): Promise<void> {
         await telegram.editMessage(chatId, streamMsgId, finalText);
       } else if (streamMsgId && finalText.length > 4096) {
         await telegram.editMessage(chatId, streamMsgId, finalText.slice(0, 4096));
-        await telegram.sendMessage(chatId, finalText.slice(4096));
+        await telegram.sendMessage(chatId, finalText.slice(4096), { disableLinkPreview: true });
       } else {
-        await telegram.sendMessage(chatId, finalText);
+        await telegram.sendMessage(chatId, finalText, { replyTo: messageId, disableLinkPreview: true });
       }
 
       await react('👍');

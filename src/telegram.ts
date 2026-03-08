@@ -97,8 +97,7 @@ export class TelegramBridge {
     this.polling = false;
   }
 
-  async sendMessage(chatId: string | number, text: string, replyTo?: number): Promise<number | null> {
-    // Split long messages
+  async sendMessage(chatId: string | number, text: string, opts?: { replyTo?: number; disableLinkPreview?: boolean }): Promise<number | null> {
     const chunks = this.splitMessage(text);
     let lastMsgId: number | null = null;
 
@@ -107,13 +106,14 @@ export class TelegramBridge {
         chat_id: chatId,
         text: chunk,
         parse_mode: 'Markdown',
-        ...(replyTo ? { reply_to_message_id: replyTo } : {}),
+        ...(opts?.replyTo ? { reply_parameters: { message_id: opts.replyTo, allow_sending_without_reply: true } } : {}),
+        ...(opts?.disableLinkPreview ? { link_preview_options: { is_disabled: true } } : {}),
       }).catch(async () => {
-        // Markdown parse failed — retry without parse_mode
         return await this.api('sendMessage', {
           chat_id: chatId,
           text: chunk,
-          ...(replyTo ? { reply_to_message_id: replyTo } : {}),
+          ...(opts?.replyTo ? { reply_parameters: { message_id: opts.replyTo, allow_sending_without_reply: true } } : {}),
+          ...(opts?.disableLinkPreview ? { link_preview_options: { is_disabled: true } } : {}),
         });
       });
       lastMsgId = res?.result?.message_id ?? null;
