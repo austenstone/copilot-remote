@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   const sessions = new Map<string, CopilotSession>();
   const chatWorkDirs = new Map<string, string>();
 
-  telegram.setMessageHandler(async (text: string, chatId: string, _messageId: number) => {
+  telegram.setMessageHandler(async (text: string, chatId: string, messageId: number) => {
     console.log('[Message] ' + chatId + ': ' + text);
 
     if (text.startsWith('/')) {
@@ -100,13 +100,13 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Send typing indicator
-    await telegram.sendTyping(chatId);
+    // Status reactions on user's message
+    const react = (emoji: string) => telegram.setReaction(chatId, messageId, emoji);
+    await react('🤔');
 
     // Stream state — one message, continuously edited
     let streamMsgId: number | null = null;
     let streamText = '';
-    let phase: 'thinking' | 'responding' = 'thinking';
     let lastEditTime = 0;
     let editTimer: NodeJS.Timeout | null = null;
     const THROTTLE_MS = 1200;
@@ -117,15 +117,11 @@ async function main(): Promise<void> {
       lastEditTime = Date.now();
       if (!streamText.trim()) return;
 
-      const display = phase === 'thinking'
-        ? '💭 ' + streamText
-        : streamText;
-
       if (!streamMsgId) {
-        if (display.length < MIN_INITIAL_CHARS) return; // wait for more
-        streamMsgId = await telegram.sendMessage(chatId, display);
+        if (streamText.length < MIN_INITIAL_CHARS) return;
+        streamMsgId = await telegram.sendMessage(chatId, streamText);
       } else {
-        await telegram.editMessage(chatId, streamMsgId, display);
+        await telegram.editMessage(chatId, streamMsgId, streamText);
       }
     };
 
@@ -135,40 +131,25 @@ async function main(): Promise<void> {
       editTimer = setTimeout(flushEdit, delay);
     };
 
+    // Tool type classification for reactions
+    const codingTools = ['bash', 'exec', 'read_file', 'edit_file', 'create_file', 'delete_file', 'write_file', 'list_dir', 'view'];
+    const webTools = ['web_search', 'web_fetch', 'browser'];
+
     const onThinking = (text: string) => {
       streamText += text;
       scheduleEdit();
     };
 
     const onDelta = (text: string) => {
-      if (phase === 'thinking') {
-        // Transition: clear thinking, start fresh with response
-        phase = 'responding';
-        streamText += '\n';
-      }
       streamText += text;
       scheduleEdit();
     };
 
-    const prettyTool: Record<string, string> = {
-      read_file: 'Read', edit_file: 'Edit', create_file: 'Create',
-      bash: 'Run', report_intent: 'Plan', view: 'View',
-      list_dir: 'List', search: 'Search', grep_search: 'Search',
-      think: 'Think', glob: 'Glob', delete_file: 'Delete',
-    };
-
     const onToolStart = async (tool: any) => {
       const name = tool.toolName;
-      const label = prettyTool[name] ?? name.replace(/_/g, ' ');
-      const args = tool.arguments;
-      let detail = '';
-      if (name === 'bash' && args?.command) {
-        detail = ': ' + args.command;
-      } else if (args?.file_path) {
-        detail = ': ' + args.file_path;
-      }
-      streamText += '\n⚙ ' + label + detail;
-      scheduleEdit();
+      if (webTools.includes(name)) await react('⚡');
+      else if (codingTools.includes(name)) await react('👨‍💻');
+      else await react('🔥');
     };
 
     session.on('thinking', onThinking);
@@ -178,13 +159,11 @@ async function main(): Promise<void> {
     try {
       const response = await session.send(text);
 
-      // Clean up
       if (editTimer) { clearTimeout(editTimer); editTimer = null; }
       session.off('thinking', onThinking);
       session.off('delta', onDelta);
       session.off('tool_start', onToolStart);
 
-      // Final edit with complete response
       if (response.content) {
         if (streamMsgId && response.content.length <= 4096) {
           await telegram.editMessage(chatId, streamMsgId, response.content);
@@ -198,6 +177,7 @@ async function main(): Promise<void> {
         await telegram.sendMessage(chatId, '_(no response)_');
       }
 
+      await react('👍');
       if (session.sessionId) {
         console.log('[Session] Conversation ID: ' + session.sessionId);
       }
@@ -206,6 +186,7 @@ async function main(): Promise<void> {
       session.off('thinking', onThinking);
       session.off('delta', onDelta);
       session.off('tool_start', onToolStart);
+      await react('😱');
       await telegram.sendMessage(chatId, '❌ ' + String(err));
     }
   });

@@ -124,7 +124,23 @@ export class TelegramBridge {
     await this.api('sendChatAction', {
       chat_id: chatId,
       action: 'typing',
-    }).catch(() => {}); // best effort
+    }).catch(() => {});
+  }
+
+  async setReaction(chatId: string | number, messageId: number, emoji: string): Promise<void> {
+    await this.api('setMessageReaction', {
+      chat_id: chatId,
+      message_id: messageId,
+      reaction: [{ type: 'emoji', emoji }],
+    }).catch(() => {});
+  }
+
+  async removeReaction(chatId: string | number, messageId: number): Promise<void> {
+    await this.api('setMessageReaction', {
+      chat_id: chatId,
+      message_id: messageId,
+      reaction: [],
+    }).catch(() => {});
   }
 
   private splitMessage(text: string): string[] {
