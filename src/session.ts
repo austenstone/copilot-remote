@@ -398,9 +398,9 @@ export class Session extends EventEmitter {
       resolve({
         content:
           text.trim() ||
-          (resultData?.content as string) ||
-          (resultObj?.content as string) ||
-          String(result ?? '').slice(0, 500) ||
+          (typeof resultData?.content === 'string' ? resultData.content : '') ||
+          (typeof resultObj?.content === 'string' ? resultObj.content : '') ||
+          (typeof result === 'string' ? result : '') ||
           '_(no response)_',
       });
     } catch (err) {

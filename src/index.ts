@@ -541,7 +541,7 @@ async function main(): Promise<void> {
 
     const pendingInputs = new Map<number, string>(); // msgId → chatId for user input answers
     const onUserInput = async (req: UserInputRequest) => {
-      const question = req.question ?? String(req);
+      const question = req.question ?? (typeof req === 'string' ? req : JSON.stringify(req));
       const choices = req.choices as string[] | undefined;
       if (choices?.length) {
         const buttons = choices.map((c: string) => [{ text: c, data: 'input:' + c }]);
