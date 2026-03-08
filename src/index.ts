@@ -454,8 +454,7 @@ async function main(): Promise<void> {
     const display = () => {
       const p: string[] = [];
       if (intentText) p.push('🎯 *' + intentText + '*');
-      // Only show thinking inline if NOT using separate thinking message
-      if (thinkingText && !thinkingMsgId) {
+      if (thinkingText && c.showThinking) {
         const s = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
         p.push('💭 _' + s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&') + '_');
       }
@@ -467,7 +466,6 @@ async function main(): Promise<void> {
 
     let streamGeneration = 0;
     const staleMessageIds: number[] = []; // messages from old generations, cleaned up at finalize
-    let thinkingMsgId: number | null = null; // separate message for thinking (when showThinking is on)
 
     // Minimum chars before sending first streaming message.
     // Prevents premature push notifications (user sees "I" before the full sentence).
@@ -515,38 +513,15 @@ async function main(): Promise<void> {
       if (!timer) timer = setTimeout(() => { flush().catch(() => {}); }, Math.max(0, THROTTLE - (Date.now() - lastEdit)));
     };
 
-    let thinkingSending = false; // guard against concurrent sends
-    const onThink = async (t: string) => {
+    const onThink = (t: string) => {
       if (!c.showThinking) return;
+      if (!thinkingText) react(LIFECYCLE_REACTIONS.thinking);
       thinkingText += t;
-      if (thinkingSending) return; // another call is already creating the message
-      // Send thinking to a separate message (not the main stream)
-      const preview = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
-      const escaped = preview.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
-      const text = '💭 _' + escaped + '_';
-      if (!thinkingMsgId) {
-        if (text.length < 40) return; // debounce tiny thinking
-        thinkingSending = true;
-        const id = await client.sendMessage(chatId, text, { disableLinkPreview: true });
-        thinkingMsgId = id;
-        thinkingSending = false;
-        // Flush any accumulated text while we were sending
-        if (thinkingText.length > preview.length) {
-          const updated = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
-          const esc2 = updated.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
-          client.editMessage(chatId, thinkingMsgId!, '💭 _' + esc2 + '_').catch(() => {});
-        }
-      } else {
-        client.editMessage(chatId, thinkingMsgId, text).catch(() => {});
-      }
+      schedEdit(); // thinking shows inline in the main streaming message
     };
     const onDelta = (t: string) => {
-      // Thinking→response transition: delete thinking message
+      // Thinking→response transition: clear thinking, bump generation for fresh message
       if (thinkingText) {
-        if (thinkingMsgId) {
-          client.deleteMessage?.(chatId, thinkingMsgId).catch(() => {});
-          thinkingMsgId = null;
-        }
         if (streamMsgId) {
           staleMessageIds.push(streamMsgId);
           streamMsgId = null;
@@ -708,11 +683,6 @@ async function main(): Promise<void> {
 
       // Finalize: send the complete response
       // Clean up any stale messages from old generations
-      // Clean up thinking message if still present
-      if (thinkingMsgId) {
-        client.deleteMessage?.(chatId, thinkingMsgId).catch(() => {});
-        thinkingMsgId = null;
-      }
       for (const id of staleMessageIds) {
         client.deleteMessage?.(chatId, id).catch(() => {});
       }
