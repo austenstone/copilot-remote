@@ -111,3 +111,7 @@ Or just type a message to send it as a prompt to Copilot.
 ## License
 
 MIT
+
+## Inspiration
+
+Inspired by [OpenClaw](https://github.com/openclaw/openclaw) — an AI agent that bridges to messaging platforms via structured events. Copilot Remote applies the same pattern to GitHub Copilot CLI.
