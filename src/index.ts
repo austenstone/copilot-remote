@@ -393,6 +393,7 @@ async function main(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let lastUsage: any = null;
     const toolLines: string[] = [];
+    let activeToolStatus = ''; // current tool being executed (always shown)
     let lastEdit = 0,
       timer: NodeJS.Timeout | null = null;
     const THROTTLE = useDraft ? 400 : 800; // drafts can update faster, edits throttled to avoid rate limits
@@ -405,6 +406,7 @@ async function main(): Promise<void> {
         p.push('💭 _' + s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&') + '_');
       }
       if (toolLines.length) p.push(toolLines.join('\n'));
+      if (activeToolStatus && !responseText) p.push('⏳ ' + activeToolStatus);
       if (responseText) p.push(responseText);
       return p.join('\n\n');
     };
@@ -476,6 +478,16 @@ async function main(): Promise<void> {
         if (intent) { intentText = String(intent); schedEdit(); }
         return;
       }
+      // Always set active tool status (visible even with showTools off)
+      const toolLabel = TOOL_LABELS[t.toolName] ?? '🔧 ' + t.toolName;
+      let statusDetail = '';
+      if (t.arguments?.command) statusDetail = ' `' + String(t.arguments.command).slice(0, 80) + '`';
+      else if (t.arguments?.url) statusDetail = ' `' + String(t.arguments.url).slice(0, 80) + '`';
+      else if (t.arguments?.file_path) statusDetail = ' `' + String(t.arguments.file_path) + '`';
+      else if (t.arguments?.pattern) statusDetail = ' `' + String(t.arguments.pattern).slice(0, 60) + '`';
+      activeToolStatus = toolLabel + statusDetail;
+      schedEdit();
+
       if (!c.showTools) return;
       const label = TOOL_LABELS[t.toolName] ?? '🔧 ' + t.toolName;
       let detail = '';
@@ -485,6 +497,8 @@ async function main(): Promise<void> {
       schedEdit();
     };
     const onToolEnd = (t: ToolEvent) => {
+      activeToolStatus = ''; // clear active tool status
+      client.sendTyping(chatId); // re-send typing (Telegram cancels on edit)
       if (t.toolName === 'report_intent') return; // already handled
       if (!c.showTools || !toolLines.length) return;
       toolLines[toolLines.length - 1] += t.success !== false ? ' ✓' : ' ✗';
