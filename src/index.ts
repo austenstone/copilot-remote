@@ -748,19 +748,16 @@ async function main(): Promise<void> {
       const s = sessions.get(chatId);
       if (!s?.alive) return;
       if (data === 'perm:all') {
-        s.autopilot = true;
-        const c = cfg(chatId);
-        c.autopilot = true;
-        setCfg(chatId, c);
+        // Approve all pending prompts in this chat (doesn't switch mode)
         s.approve();
         for (const [id, cid] of pendingPerms) {
           if (cid === chatId) {
             s.approve();
             pendingPerms.delete(id);
-            if (id !== msgId) client.editButtons(chatId, id, '🚀', []).catch(() => {});
+            if (id !== msgId) client.editButtons(chatId, id, '✅', []).catch(() => {});
           }
         }
-        await client.editButtons(chatId, msgId, '🚀 Autopilot ON', []);
+        await client.editButtons(chatId, msgId, '✅ All approved', []);
       } else {
         const ok = data === 'perm:yes';
         if (ok) {
