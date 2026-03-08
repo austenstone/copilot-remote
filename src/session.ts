@@ -357,10 +357,16 @@ export class Session extends EventEmitter {
     return this.session!.rpc.plan.delete();
   }
   async listTools(): Promise<ToolsListResponse> {
-    return (this.client as unknown as { rpc: { tools: { list: (opts: { sessionId: string }) => Promise<ToolsListResponse> } } }).rpc.tools.list({ sessionId: this.session!.sessionId! });
+    return (
+      this.client as unknown as {
+        rpc: { tools: { list: (opts: { sessionId: string }) => Promise<ToolsListResponse> } };
+      }
+    ).rpc.tools.list({ sessionId: this.session!.sessionId! });
   }
   async getQuota(): Promise<QuotaResponse> {
-    return (this.client as unknown as { rpc: { account: { getQuota: () => Promise<QuotaResponse> } } }).rpc.account.getQuota();
+    return (
+      this.client as unknown as { rpc: { account: { getQuota: () => Promise<QuotaResponse> } } }
+    ).rpc.account.getQuota();
   }
   async getMessages(): Promise<SessionMessage[]> {
     return (this.session?.getMessages() ?? []) as SessionMessage[];

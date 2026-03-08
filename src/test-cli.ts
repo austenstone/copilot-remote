@@ -33,12 +33,12 @@ async function main() {
   session.on('thinking', (t: string) => {
     if (debug) process.stdout.write('💭 ' + t);
   });
-  session.on('tool_start', (t: any) =>
+  session.on('tool_start', (t: { toolName: string; arguments?: Record<string, string> }) =>
     console.log('\n🔧 ' + t.toolName + (t.arguments?.command ? ' `' + t.arguments.command + '`' : '')),
   );
-  session.on('tool_complete', (t: any) => console.log('  ' + (t.success !== false ? '✓' : '✗')));
-  session.on('permission_request', (req: any) => {
-    const p = req.permissionRequest ?? req;
+  session.on('tool_complete', (t: { success?: boolean }) => console.log('  ' + (t.success !== false ? '✓' : '✗')));
+  session.on('permission_request', (req: Record<string, unknown>) => {
+    const p = (req as { permissionRequest?: Record<string, unknown> }).permissionRequest ?? req;
     console.log('\n⚠️  Permission: ' + p.kind + ' — ' + (p.fullCommandText ?? p.url ?? p.intention ?? ''));
     console.log('  Auto-approving (test mode)');
     session.approve();
@@ -76,7 +76,7 @@ async function main() {
         ]);
         console.log(
           'Model: ' +
-            ((model as any)?.modelId ?? '?') +
+            ((model as { modelId?: string })?.modelId ?? '?') +
             ' | Mode: ' +
             (mode ?? '?') +
             ' | Autopilot: ' +
@@ -99,14 +99,14 @@ async function main() {
     }
     if (text === '/models') {
       const models = await session.listModels();
-      models.forEach((m) => console.log('  ' + ((m as any).id ?? (m as any).name)));
+      models.forEach((m) => console.log('  ' + (m.id ?? m.name)));
       continue;
     }
     if (text === '/tools') {
       try {
         const r = await session.listTools();
-        const t = (r as any)?.tools ?? r;
-        if (Array.isArray(t)) t.forEach((x: any) => console.log('  ' + (x.name ?? x)));
+        const t = r?.tools ?? [];
+        t.forEach((x) => console.log('  ' + (x.name ?? x)));
       } catch (e) {
         console.error(e);
       }

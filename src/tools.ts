@@ -13,7 +13,7 @@ export function createTelegramTools(callbacks: { sendNotification: (text: string
       },
       required: ['message'],
     },
-    handler: async (args: any) => {
+    handler: async (args: { message: string }) => {
       await callbacks.sendNotification(args.message);
       return { success: true };
     },

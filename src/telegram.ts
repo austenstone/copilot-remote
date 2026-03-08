@@ -147,7 +147,7 @@ export class TelegramClient implements Client {
     this.bot.on('message_reaction', async (ctx) => {
       const r = ctx.messageReaction;
       const chatId = String(r.chat?.id ?? '');
-      const userId = String(r.user?.id ?? (r as Record<string, unknown>).actor_chat?.id ?? '');
+      const userId = String(r.user?.id ?? (r as unknown as Record<string, { id?: number }>).actor_chat?.id ?? '');
       if (userId !== this.pairedUser || !chatId) return;
       const emojis = (r.new_reaction ?? []).filter((e) => e.type === 'emoji').map((e) => e.emoji);
       for (const emoji of emojis) this.onReaction?.(emoji, chatId, r.message_id);
@@ -300,7 +300,8 @@ export class TelegramClient implements Client {
     try {
       const file = await this.bot.api.getFile(fileId);
       const url =
-        (file as Record<string, unknown>).getUrl?.() ??
+        // grammY hydrate plugin adds getUrl() at runtime
+        (file as unknown as { getUrl?: () => string }).getUrl?.() ??
         (file.file_path ? 'https://api.telegram.org/file/bot' + this.config.botToken + '/' + file.file_path : null);
       return url ?? null;
     } catch {
@@ -387,7 +388,11 @@ export class TelegramClient implements Client {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InlineQueryResult is complex; callers build ad-hoc objects
   async answerInlineQuery(queryId: string, results: Record<string, unknown>[]): Promise<void> {
-    await this.bot.api.answerInlineQuery(queryId, results as Parameters<typeof this.bot.api.answerInlineQuery>[1], { cache_time: 0 }).catch(() => {});
+    await this.bot.api
+      .answerInlineQuery(queryId, results as unknown as Parameters<typeof this.bot.api.answerInlineQuery>[1], {
+        cache_time: 0,
+      })
+      .catch(() => {});
   }
 
   getTopicName(sessionKey: string): string | undefined {
@@ -396,7 +401,11 @@ export class TelegramClient implements Client {
 
   // ── Internal ──
 
-  private async sendText(method: string, params: Record<string, unknown>, text: string): Promise<unknown> {
+  private async sendText(
+    method: string,
+    params: Record<string, unknown>,
+    text: string,
+  ): Promise<{ message_id?: number } | null> {
     try {
       return await (this.bot.api.raw as Record<string, Function>)[method]({ ...params, text: markdownToHtml(text) });
     } catch {

@@ -221,7 +221,8 @@ async function main(): Promise<void> {
       binary: bin,
       model: c.model,
       autopilot: c.autopilot,
-      reasoningEffort: c.reasoningEffort !== 'none' ? (c.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh') : undefined,
+      reasoningEffort:
+        c.reasoningEffort !== 'none' ? (c.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh') : undefined,
       agent: c.agent ?? undefined,
       topicContext: client.getTopicName?.(chatId),
     };
@@ -382,9 +383,9 @@ async function main(): Promise<void> {
               : p.kind;
       let detail =
         p.kind === 'shell'
-          ? '```\n' + (p.fullCommandText ?? '').slice(0, 300) + '\n```'
+          ? '```\n' + String(p.fullCommandText ?? '').slice(0, 300) + '\n```'
           : p.kind === 'url'
-            ? '`' + (p.url ?? '').slice(0, 200) + '`'
+            ? '`' + String(p.url ?? '').slice(0, 200) + '`'
             : (p.intention ?? '');
       if (p.intention && p.kind !== detail) detail += '\n_' + p.intention + '_';
       const id = await client.sendButtons(chatId, icon + ' *' + title + '*\n' + detail, [
@@ -685,10 +686,9 @@ async function main(): Promise<void> {
           try {
             const r = await s.listAgents();
             const agents = r?.agents ?? [];
-            const lines =
-              agents.length
-                ? agents.map((a: AgentInfo) => '• `' + (a.name ?? a) + '`')
-                : ['No agents found.'];
+            const lines = agents.length
+              ? agents.map((a: AgentInfo) => '• `' + (a.name ?? a) + '`')
+              : ['No agents found.'];
             await client.sendMessage(chatId, '🤖 *Agents*\n' + lines.join('\n'));
           } catch (e) {
             await client.sendMessage(chatId, '❌ ' + e);
@@ -719,10 +719,7 @@ async function main(): Promise<void> {
         try {
           if (args[0] === 'show') {
             const p = await s.readPlan();
-            await client.sendMessage(
-              chatId,
-              p?.content ? '📋 ' + p.content.slice(0, 3800) : '📋 No plan.',
-            );
+            await client.sendMessage(chatId, p?.content ? '📋 ' + p.content.slice(0, 3800) : '📋 No plan.');
           } else if (args[0] === 'delete') {
             await s.deletePlan();
             await client.sendMessage(chatId, '🗑 Plan deleted.');
@@ -1189,7 +1186,7 @@ async function main(): Promise<void> {
     if (data.startsWith('dsp:')) {
       const key = data.slice(4) as keyof ChatConfig;
       const c = cfg(chatId);
-      const rec = c as Record<string, unknown>;
+      const rec = c as unknown as Record<string, unknown>;
       if (key in c && typeof rec[key] === 'boolean') {
         rec[key] = !rec[key];
         setCfg(chatId, c);
@@ -1227,7 +1224,7 @@ async function main(): Promise<void> {
     if (data.startsWith('cfg:')) {
       const key = data.slice(4) as keyof ChatConfig;
       const c = cfg(chatId);
-      const rec = c as Record<string, unknown>;
+      const rec = c as unknown as Record<string, unknown>;
       if (key in c && typeof rec[key] === 'boolean') {
         rec[key] = !rec[key];
         setCfg(chatId, c);
