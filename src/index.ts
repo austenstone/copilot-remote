@@ -375,8 +375,20 @@ async function main(): Promise<void> {
         const s = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
         p.push('💭 _' + s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&') + '_');
       }
-      if (toolLines.length) p.push(toolLines.join('\n'));
+      if (toolLines.length) {
+        const lines = [...toolLines];
+        // Append … to last tool line if it's still running (no ✓/✗ yet)
+        const last = lines[lines.length - 1];
+        if (last && !last.endsWith('✓') && !last.endsWith('✗')) {
+          lines[lines.length - 1] = last + ' …';
+        }
+        p.push(lines.join('\n'));
+      }
       if (responseText) p.push(responseText);
+      // Append … while still streaming
+      if (p.length && !responseText) {
+        p[p.length - 1] += ' …';
+      }
       return p.join('\n\n');
     };
 
