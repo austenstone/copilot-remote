@@ -1,6 +1,7 @@
 // Copilot Remote — Telegram ↔ Copilot SDK bridge
 import { Session } from './session.js';
 import { TelegramBridge } from './telegram.js';
+import { log } from './log.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -14,7 +15,7 @@ function loadConfig() {
   if (fs.existsSync(cfgPath)) return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
 
   const botToken = process.env.COPILOT_REMOTE_BOT_TOKEN;
-  if (!botToken) { console.error('Missing COPILOT_REMOTE_BOT_TOKEN'); process.exit(1); }
+  if (!botToken) { log.error('Missing COPILOT_REMOTE_BOT_TOKEN'); process.exit(1); }
   return {
     botToken,
     allowedUsers: process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
@@ -40,7 +41,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const bin = config.copilotBinary ?? findBin('copilot');
 
-  console.log('⚡ Copilot Remote v0.5 | dir: ' + config.workDir);
+  log.info('⚡ Copilot Remote v0.5 | dir: ' + config.workDir);
 
   const tg = new TelegramBridge({ botToken: config.botToken, allowedUsers: config.allowedUsers });
 
@@ -277,6 +278,11 @@ async function main(): Promise<void> {
         if (s?.alive) { await s.abort(); await tg.sendMessage(chatId, '🛑 Aborted.'); }
         break;
       }
+      case '/debug': {
+        log.enabled = !log.enabled;
+        await tg.sendMessage(chatId, log.enabled ? '🐛 Debug ON' : '🐛 Debug OFF');
+        break;
+      }
       case '/autopilot': case '/allowall': {
         const s = sessions.get(chatId);
         if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
@@ -490,4 +496,4 @@ async function main(): Promise<void> {
   await tg.startPolling();
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+main().catch(e => { log.error('Fatal:', e); process.exit(1); });

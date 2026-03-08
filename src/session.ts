@@ -10,6 +10,7 @@ import {
   type SessionConfig,
 } from '@github/copilot-sdk';
 import { EventEmitter } from 'events';
+import { log } from './log.js';
 
 export interface SessionOptions {
   cwd: string;
@@ -78,7 +79,7 @@ export class Session extends EventEmitter {
       case 'permission.requested': this.emit('permission_request', d); break;
       case 'session.idle': this.emit('idle'); break;
       case 'session.error': this.emit('error', d.message ?? 'Unknown error'); break;
-      default: if (!e.ephemeral) console.log('[SDK] ' + e.type); break;
+      default: log.sdk(e.type, d); break;
     }
   }
 
@@ -86,6 +87,7 @@ export class Session extends EventEmitter {
     if (this._autopilot) return { kind: 'approved' };
 
     this.emit('permission_request', req);
+    log.debug('Permission prompt (waiting for user):', req.kind);
     return new Promise<PermissionRequestResult>((resolve) => {
       const handler = (approved: boolean) => {
         resolve({ kind: approved ? 'approved' : 'denied-interactively-by-user' } as PermissionRequestResult);
@@ -119,10 +121,11 @@ export class Session extends EventEmitter {
       const onDelta = (t: string) => { text += t; };
       this.on('delta', onDelta);
 
-      await this.session!.sendAndWait({ prompt }, 300_000);
+      const result = await this.session!.sendAndWait({ prompt }, 300_000);
+      log.debug('sendAndWait result:', JSON.stringify(result).slice(0, 500));
 
       this.off('delta', onDelta);
-      resolve({ content: text.trim() || '_(no response)_' });
+      resolve({ content: text.trim() || (result as any)?.data?.content || (result as any)?.content || String(result ?? '').slice(0, 500) || '_(no response)_' });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
     } finally {
