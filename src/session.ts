@@ -283,7 +283,15 @@ export class Session extends EventEmitter {
       };
       this.on('delta', onDelta);
 
-      const result = await this.session!.sendAndWait({ prompt }, 300_000);
+      // Reject if session emits an error (e.g. auth failure)
+      let errorHandler: ((msg: string) => void) | null = null;
+      const errorPromise = new Promise<never>((_, rej) => {
+        errorHandler = (msg: string) => rej(new Error(msg));
+        this.once('error', errorHandler);
+      });
+
+      const result = await Promise.race([this.session!.sendAndWait({ prompt }, 300_000), errorPromise]);
+      if (errorHandler) this.off('error', errorHandler);
       log.debug('sendAndWait result:', JSON.stringify(result).slice(0, 500));
 
       const resultObj = result as Record<string, unknown>;
