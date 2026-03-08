@@ -4,6 +4,7 @@
 export interface MessageOptions {
   replyTo?: number;
   disableLinkPreview?: boolean;
+  threadId?: number;
 }
 
 export interface Button {

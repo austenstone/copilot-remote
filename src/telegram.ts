@@ -148,13 +148,14 @@ export class TelegramBridge {
   async sendMessage(
     chatId: string | number,
     text: string,
-    opts?: { replyTo?: number; disableLinkPreview?: boolean },
+    opts?: { replyTo?: number; disableLinkPreview?: boolean; threadId?: number },
   ): Promise<number | null> {
     const chunks = this.splitMessage(text);
     let lastMsgId: number | null = null;
     const extra: Record<string, any> = {};
     if (opts?.replyTo) extra.reply_parameters = { message_id: opts.replyTo, allow_sending_without_reply: true };
     if (opts?.disableLinkPreview) extra.link_preview_options = { is_disabled: true };
+    if (opts?.threadId) extra.message_thread_id = opts.threadId;
 
     for (const chunk of chunks) {
       const res = await this.sendText('sendMessage', { chat_id: chatId, ...extra }, chunk);
