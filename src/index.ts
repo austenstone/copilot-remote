@@ -642,11 +642,12 @@ async function main(): Promise<void> {
             ? '`' + String(p.url ?? '').slice(0, 200) + '`'
             : (p.intention ?? '');
       if (p.intention && p.kind !== detail) detail += '\n_' + p.intention + '_';
+      const pfx = (d: string) => '@' + chatId + '|' + d;
       const id = await client.sendButtons(chatId, icon + ' *' + title + '*\n' + detail, [
         [
-          { text: '✅ Approve', data: 'perm:yes', style: 'constructive' },
-          { text: '❌ Deny', data: 'perm:no', style: 'destructive' },
-          { text: '✅ All', data: 'perm:all' },
+          { text: '✅ Approve', data: pfx('perm:yes'), style: 'success' },
+          { text: '❌ Deny', data: pfx('perm:no'), style: 'danger' },
+          { text: '✅ All', data: pfx('perm:all') },
         ],
       ]);
       if (id) pendingPerms.set(id, chatId);
@@ -657,7 +658,7 @@ async function main(): Promise<void> {
       const question = req.question ?? (typeof req === 'string' ? req : JSON.stringify(req));
       const choices = req.choices as string[] | undefined;
       if (choices?.length) {
-        const buttons = choices.map((c: string) => [{ text: c, data: 'input:' + c }]);
+        const buttons = choices.map((c: string) => [{ text: c, data: '@' + chatId + '|input:' + c }]);
         const id = await client.sendButtons(chatId, '❓ ' + question, buttons);
         if (id) pendingInputs.set(id, chatId);
       } else {
