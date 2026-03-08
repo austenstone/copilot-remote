@@ -291,6 +291,38 @@ async function main(): Promise<void> {
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
   // Get or create session
+  // Register persistent listeners on a session (called once per session, not per message)
+  function registerSessionListeners(session: Session, chatId: string) {
+    session.on('usage', (u: Record<string, unknown>) => {
+      const lastUsage = {
+        model: u.model as string,
+        inputTokens: u.inputTokens as number,
+        outputTokens: u.outputTokens as number,
+        cacheReadTokens: u.cacheReadTokens as number,
+        duration: u.duration as number,
+      };
+      lastUsageMap.set(chatId, lastUsage);
+    });
+    session.on('turn_start', () => {});
+    session.on('permission_timeout', () => {
+      for (const [id, cid] of pendingPerms) {
+        if (cid === chatId) {
+          pendingPerms.delete(id);
+          client.editButtons(chatId, id, '⏰ Expired (denied)', []).catch(() => {});
+        }
+      }
+    });
+    session.on('notification', async (text: string) => {
+      await client.sendMessage(chatId, '🔔 ' + text);
+    });
+    session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
+      const msg = info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
+      await client.sendMessage(chatId, '⚠️ *SDK Error:* ' + msg);
+    });
+    session.on('hook:session_start', () => log.debug('[hook] Session started for chat', chatId));
+    session.on('hook:session_end', () => log.debug('[hook] Session ended for chat', chatId));
+  }
+
   async function getSession(chatId: string): Promise<Session> {
     let s = sessions.get(chatId);
     if (s?.alive) return s;
@@ -337,6 +369,7 @@ async function main(): Promise<void> {
         await s.resume(saved.sessionId, opts);
         sessionStore.touch(chatId);
         sessions.set(chatId, s);
+        registerSessionListeners(s, chatId);
         log.info('Resumed session', saved.sessionId, 'for', chatId);
         return s;
       } catch (e) {
@@ -356,6 +389,7 @@ async function main(): Promise<void> {
         lastUsed: Date.now(),
       });
     }
+    registerSessionListeners(s, chatId);
     sessions.set(chatId, s);
     return s;
   }
@@ -637,41 +671,7 @@ async function main(): Promise<void> {
     session.on('context_info', (info: { tokenLimit: number; currentTokens: number; messagesLength: number }) => {
       contextInfoMap.set(chatId, info);
     });
-    session.on('usage', (u: Record<string, unknown>) => {
-      lastUsage = {
-        model: u.model as string,
-        inputTokens: u.inputTokens as number,
-        outputTokens: u.outputTokens as number,
-        cacheReadTokens: u.cacheReadTokens as number,
-        duration: u.duration as number,
-      };
-      lastUsageMap.set(chatId, lastUsage);
-    });
-    session.on('turn_start', () => {
-      schedEdit();
-    });
-    session.on('permission_timeout', () => {
-      // Clean up expired permission prompts for this chat
-      for (const [id, cid] of pendingPerms) {
-        if (cid === chatId) {
-          pendingPerms.delete(id);
-          client.editButtons(chatId, id, '⏰ Expired (denied)', []).catch(() => {});
-        }
-      }
-    });
-    session.on('notification', async (text: string) => {
-      await client.sendMessage(chatId, '🔔 ' + text);
-    });
-    session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
-      const msg = info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
-      await client.sendMessage(chatId, '⚠️ *SDK Error:* ' + msg);
-    });
-    session.on('hook:session_start', () => {
-      log.debug(`[hook] Session started for chat ${chatId}`);
-    });
-    session.on('hook:session_end', () => {
-      log.debug(`[hook] Session ended for chat ${chatId}`);
-    });
+    // Persistent listeners (usage, hooks, notifications) registered once in registerSessionListeners()
 
     const cleanup = () => {
       if (timer) {
