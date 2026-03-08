@@ -949,7 +949,7 @@ async function main(): Promise<void> {
       autopilot: 'danger',
     };
     const modeBtn = (m: string) => ({
-      text: (m === mode ? '● ' : '') + (MODE_LABELS[m] ?? m),
+      text: MODE_LABELS[m] ?? m,
       data: pfx('mode:' + m),
       ...(m === mode ? { style: MODE_STYLES[m] } : {}),
     });
