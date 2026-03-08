@@ -402,8 +402,6 @@ async function main(): Promise<void> {
     let session: Session;
     try {
       session = await getSession(chatId);
-      // Track first user message as session summary
-      sessionStore.touch(chatId, prompt);
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       // If reasoning effort not supported, retry without it
@@ -895,10 +893,17 @@ async function main(): Promise<void> {
         const current = sessions.get(chatId)?.sessionId;
         const lines: string[] = [];
         const buttons: Button[][] = [];
+        const sessionStateDir = path.join(process.env.HOME ?? '/tmp', '.copilot', 'session-state');
         for (const [key, entry] of all.slice(0, 10)) {
+          let summary = entry.model;
+          try {
+            const ws = fs.readFileSync(path.join(sessionStateDir, entry.sessionId, 'workspace.yaml'), 'utf-8');
+            const m = ws.match(/^summary:\s*(.+)$/m);
+            if (m?.[1]) summary = m[1].slice(0, 60);
+          } catch { /* no workspace.yaml */ }
           const isCurrent = entry.sessionId === current;
-          const label = (isCurrent ? '▶️ ' : '') + (entry.summary ?? entry.model) + ' · ' + ago(entry.lastUsed);
-          lines.push((isCurrent ? '▶️' : '⏸') + ' ' + (entry.summary ? '**' + entry.summary + '**' : entry.model) + ' · ' + ago(entry.lastUsed) + ' · `' + entry.cwd + '`');
+          const label = (isCurrent ? '▶️ ' : '') + summary + ' · ' + ago(entry.lastUsed);
+          lines.push((isCurrent ? '▶️' : '⏸') + ' **' + summary + '** · ' + ago(entry.lastUsed));
           buttons.push([{
             text: label,
             data: '@' + chatId + '|session:' + entry.sessionId,
