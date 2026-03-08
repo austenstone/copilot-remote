@@ -52,10 +52,10 @@ async function main(): Promise<void> {
   const copilotBin = config.copilotBinary ?? findBinary('copilot');
 
   console.log('╔══════════════════════════════════════╗');
-  console.log('║       ⚡ Copilot Remote v0.2.0       ║');
+  console.log('║       ⚡ Copilot Remote v0.4.0       ║');
   console.log('╠══════════════════════════════════════╣');
   console.log('║  Copilot CLI ↔ Telegram Bridge       ║');
-  console.log('║  JSONL streaming + session resume     ║');
+  console.log('║  ACP mode + message queuing           ║');
   console.log('╚══════════════════════════════════════╝');
   console.log('');
   console.log('Work dir:', config.workDir);
