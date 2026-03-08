@@ -18,12 +18,14 @@ import {
 } from '@github/copilot-sdk';
 import { EventEmitter } from 'events';
 
+export type PermissionMode = 'smart' | 'ask-all' | 'allow-all';
+
 export interface SessionOptions {
   cwd: string;
   binary?: string;
   env?: Record<string, string>;
   model?: string;
-  allowAllTools?: boolean;
+  permissionMode?: PermissionMode;
   agent?: string;
 }
 
@@ -55,7 +57,7 @@ export class Session extends EventEmitter {
   private _alive = false;
   private _busy = false;
   private _model: string | null = null;
-  private _allowAllTools = false;
+  private _permissionMode: PermissionMode = 'smart';
   private _agent: string | null = null;
   private cwd: string = '';
 
@@ -66,8 +68,8 @@ export class Session extends EventEmitter {
   get alive(): boolean { return this._alive; }
   get busy(): boolean { return this._busy; }
   get currentSessionId(): string | null { return this.session?.sessionId ?? null; }
-  get allowAllTools(): boolean { return this._allowAllTools; }
-  set allowAllTools(v: boolean) { this._allowAllTools = v; }
+  get permissionMode(): PermissionMode { return this._permissionMode; }
+  set permissionMode(v: PermissionMode) { this._permissionMode = v; }
   get model(): string | null { return this._model; }
   set model(v: string | null) { this._model = v; }
   get agent(): string | null { return this._agent; }
@@ -76,7 +78,7 @@ export class Session extends EventEmitter {
   async start(options: SessionOptions): Promise<void> {
     this.cwd = options.cwd;
     this._model = options.model ?? null;
-    this._allowAllTools = options.allowAllTools ?? false;
+    this._permissionMode = options.permissionMode ?? 'smart';
     this._agent = options.agent ?? null;
 
     const clientOptions: Record<string, any> = {
@@ -98,7 +100,7 @@ export class Session extends EventEmitter {
     const config: SessionConfig = {
       clientName: 'copilot-remote',
       workingDirectory: this.cwd,
-      onPermissionRequest: this._allowAllTools
+      onPermissionRequest: this._permissionMode === 'allow-all'
         ? approveAll
         : (req: PermissionRequest) => this.handlePermission(req),
     };
@@ -223,8 +225,9 @@ export class Session extends EventEmitter {
   }
 
   private async handlePermission(req: PermissionRequest): Promise<PermissionRequestResult> {
-    // Smart auto-approve for safe operations
-    if (this.shouldAutoApprove(req)) {
+    // ask-all mode: always prompt
+    // smart mode: auto-approve safe ops, prompt for writes
+    if (this._permissionMode === 'smart' && this.shouldAutoApprove(req)) {
       console.log('[SDK] Auto-approved: ' + req.kind + ' ' + ((req as any).fullCommandText ?? (req as any).url ?? '').slice(0, 80));
       return { kind: 'approved' };
     }

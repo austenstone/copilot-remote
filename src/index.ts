@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     showThinking: boolean;
     showTools: boolean;
     showReactions: boolean;
-    allowAllTools: boolean;
+    permissionMode: 'smart' | 'ask-all' | 'allow-all';
     model: string;
     agent: string | null;
   }
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     showThinking: false,
     showTools: false,
     showReactions: true,
-    allowAllTools: false,
+    permissionMode: 'smart',
     model: 'claude-sonnet-4',
     agent: null,
   };
@@ -148,8 +148,8 @@ async function main(): Promise<void> {
       const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
 
       try {
-        const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, allowAllTools: cfg.allowAllTools, agent: cfg.agent ?? undefined });
-        session.allowAllTools = getConfig(chatId).allowAllTools;
+        const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, permissionMode: cfg.permissionMode, agent: cfg.agent ?? undefined });
+        session.permissionMode = getConfig(chatId).permissionMode;
         session.model = getConfig(chatId).model;
         sessions.set(chatId, session);
       } catch (err) {
@@ -398,7 +398,7 @@ async function main(): Promise<void> {
 
         const session = new Session();
         try {
-          const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, allowAllTools: cfg.allowAllTools, agent: cfg.agent ?? undefined });
+          const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, permissionMode: cfg.permissionMode, agent: cfg.agent ?? undefined });
           sessions.set(chatId, session);
           await telegram.sendMessage(chatId, '✅ Ready in `' + workDir + '`\n\nSend a prompt to get started.');
         } catch (err) {
@@ -427,7 +427,7 @@ async function main(): Promise<void> {
         const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
         const newSession = new Session();
         try {
-          const ncfg = getConfig(chatId); await newSession.start({ cwd: workDir, binary: copilotBin, model: ncfg.model, allowAllTools: ncfg.allowAllTools, agent: ncfg.agent ?? undefined });
+          const ncfg = getConfig(chatId); await newSession.start({ cwd: workDir, binary: copilotBin, model: ncfg.model, permissionMode: ncfg.permissionMode, agent: ncfg.agent ?? undefined });
           sessions.set(chatId, newSession);
           await telegram.sendMessage(chatId, '🆕 New session started. Previous conversation cleared.');
         } catch (err) {
@@ -507,12 +507,20 @@ async function main(): Promise<void> {
 
       case '/allowall': {
         const cfg = getConfig(chatId);
-        cfg.allowAllTools = !cfg.allowAllTools;
+        // Cycle: smart → allow-all → ask-all → smart
+        const cycle: Record<string, 'smart' | 'ask-all' | 'allow-all'> = {
+          'smart': 'allow-all', 'allow-all': 'ask-all', 'ask-all': 'smart',
+        };
+        cfg.permissionMode = cycle[cfg.permissionMode] ?? 'smart';
         setConfig(chatId, cfg);
         const session = sessions.get(chatId);
-        if (session?.alive) session.allowAllTools = cfg.allowAllTools;
-        await telegram.sendMessage(chatId,
-          cfg.allowAllTools ? '✅ Auto-approve all tools ON' : '⚪ Auto-approve all tools OFF');
+        if (session?.alive) session.permissionMode = cfg.permissionMode;
+        const labels: Record<string, string> = {
+          'smart': '🧠 Smart — auto-approve reads, prompt for writes',
+          'allow-all': '✅ Allow All — no prompts',
+          'ask-all': '🔐 Ask All — prompt for everything',
+        };
+        await telegram.sendMessage(chatId, labels[cfg.permissionMode]);
         break;
       }
 
@@ -844,8 +852,10 @@ async function main(): Promise<void> {
   async function sendConfigMenu(chatId: string, editMsgId?: number): Promise<void> {
     const cfg = getConfig(chatId);
     const toggle = (v: boolean) => v ? '✅' : '⬜';
+    const permLabels: Record<string, string> = { 'smart': '🧠 Smart', 'allow-all': '✅ Allow All', 'ask-all': '🔐 Ask All' };
     const agentLine = cfg.agent ? '\nAgent: `' + cfg.agent + '`' : '';
-    const text = '⚙️ *Settings*\nModel: `' + cfg.model + '`' + agentLine;
+    const permLine = '\nPermissions: ' + permLabels[cfg.permissionMode];
+    const text = '⚙️ *Settings*\nModel: `' + cfg.model + '`' + agentLine + permLine;
     const buttons = [
       [
         { text: toggle(cfg.showThinking) + ' Thinking', data: 'cfg:showThinking' },
@@ -856,7 +866,7 @@ async function main(): Promise<void> {
         { text: toggle(cfg.showReactions) + ' Reactions', data: 'cfg:showReactions' },
       ],
       [
-        { text: toggle(cfg.allowAllTools) + ' Auto-approve', data: 'cfg:allowAllTools' },
+        { text: permLabels[cfg.permissionMode] + ' Permissions', data: 'cfg:permissionMode' },
       ],
       [{ text: '🤖 Change Model', data: 'cfg:modelPicker' }],
     ];
@@ -956,17 +966,25 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (data === 'cfg:permissionMode') {
+      const cfg = getConfig(chatId);
+      const cycle: Record<string, 'smart' | 'ask-all' | 'allow-all'> = {
+        'smart': 'allow-all', 'allow-all': 'ask-all', 'ask-all': 'smart',
+      };
+      cfg.permissionMode = cycle[cfg.permissionMode] ?? 'smart';
+      setConfig(chatId, cfg);
+      const session = sessions.get(chatId);
+      if (session?.alive) session.permissionMode = cfg.permissionMode;
+      await sendConfigMenu(chatId, msgId);
+      return;
+    }
+
     if (data.startsWith('cfg:')) {
       const key = data.slice(4) as keyof ChatConfig;
       const cfg = getConfig(chatId);
       if (key in cfg && typeof (cfg as any)[key] === 'boolean') {
         (cfg as any)[key] = !(cfg as any)[key];
         setConfig(chatId, cfg);
-
-        if (key === 'allowAllTools') {
-          const session = sessions.get(chatId);
-          if (session?.alive) session.allowAllTools = cfg.allowAllTools;
-        }
 
         await sendConfigMenu(chatId, msgId);
       }
