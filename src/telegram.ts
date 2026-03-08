@@ -46,7 +46,7 @@ export class TelegramClient implements Client {
 
     // ── Plugins ──
     // Non-session commands bypass sequentialize so they respond instantly
-    const INSTANT_COMMANDS = new Set(['config', 'status', 'abort', 'new', 'sessions', 'cd', 'usage', 'compact']);
+    const INSTANT_COMMANDS = new Set(['config', 'status', 'abort', 'new', 'sessions', 'cd', 'usage', 'compact', 'search', 'prompt']);
     this.bot.use(sequentialize((ctx) => {
       const text = ctx.message?.text ?? '';
       if (text.startsWith('/')) {
@@ -222,6 +222,7 @@ export class TelegramClient implements Client {
         { command: 'sessions', description: 'List & resume sessions' },
         { command: 'agent', description: 'Switch agent' },
         { command: 'prompt', description: 'Run a prompt file' },
+        { command: 'search', description: 'Search session history' },
         { command: 'tools', description: 'Manage tools' },
         { command: 'usage', description: 'Usage & token stats' },
         { command: 'research', description: 'Deep research a topic' },

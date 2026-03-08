@@ -1019,18 +1019,12 @@ async function main(): Promise<void> {
           return Math.floor(h / 24) + 'd ago';
         };
         const current = sessions.get(chatId)?.sessionId;
-        const lines: string[] = [];
         const buttons: Button[][] = [];
-        const sessionStateDir = path.join(process.env.HOME ?? '/tmp', '.copilot', 'session-state');
         for (const [key, entry] of all.slice(0, 10)) {
-          let summary = entry.model;
-          try {
-            const ws = fs.readFileSync(path.join(sessionStateDir, entry.sessionId, 'workspace.yaml'), 'utf-8');
-            const m = ws.match(/^summary:\s*(.+)$/m);
-            if (m?.[1]) summary = m[1].slice(0, 60);
-          } catch { /* no workspace.yaml */ }
+          const summary = sessionStore.getSummary(entry.sessionId)?.slice(0, 60) ?? entry.model;
+          const turns = sessionStore.getTurnCount(entry.sessionId);
           const isCurrent = entry.sessionId === current;
-          const label = (isCurrent ? '▶️ ' : '') + summary + ' · ' + ago(entry.lastUsed);
+          const label = (isCurrent ? '▶️ ' : '') + summary + (turns ? ' · ' + turns + ' turns' : '') + ' · ' + ago(entry.lastUsed);
           buttons.push([{
             text: label,
             data: '@' + chatId + '|session:' + entry.sessionId,
@@ -1318,6 +1312,23 @@ async function main(): Promise<void> {
         } catch (e) {
           await client.sendMessage(chatId, '❌ ' + e);
         }
+        break;
+      }
+      case '/search': {
+        if (!argStr) {
+          await client.sendMessage(chatId, '🔍 Usage: `/search <query>`\nSearches across all session history.');
+          break;
+        }
+        const results = sessionStore.search(argStr, 5);
+        if (!results.length) {
+          await client.sendMessage(chatId, '🔍 No results for "' + argStr + '"');
+          break;
+        }
+        const buttons: Button[][] = results.map(r => [{
+          text: (r.summary?.slice(0, 50) ?? r.sessionId.slice(0, 8)) + ' — ' + r.snippet.replace(/<\/?b>/g, '').slice(0, 40),
+          data: '@' + chatId + '|session:' + r.sessionId,
+        }]);
+        await client.sendButtons(chatId, '🔍 *Results for "' + argStr + '"*', buttons);
         break;
       }
       case '/compact': {

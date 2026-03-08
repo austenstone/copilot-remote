@@ -1,7 +1,13 @@
-// Copilot Remote — Persistent session store
-// Maps chat IDs to Copilot session IDs for resume across restarts.
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+// Copilot Remote — Session store backed by shared Copilot CLI SQLite database
+// Uses ~/.copilot/session-store.db for session metadata (shared with CLI)
+// Keeps a thin chatId→sessionId mapping in ~/.copilot-remote/chat-sessions.json
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
+import { DatabaseSync } from 'node:sqlite';
+import { log } from './log.js';
+
+const DB_PATH = join(process.env.HOME ?? '/tmp', '.copilot', 'session-store.db');
+const CHAT_MAP_PATH = join(process.env.HOME ?? '/tmp', '.copilot-remote', 'chat-sessions.json');
 
 export interface SessionEntry {
   sessionId: string;
@@ -11,54 +17,162 @@ export interface SessionEntry {
   lastUsed: number;
 }
 
+interface DbSession {
+  id: string;
+  cwd: string;
+  repository: string | null;
+  branch: string | null;
+  summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export class SessionStore {
-  private data: Record<string, SessionEntry> = {};
-  private path: string;
+  private chatMap: Record<string, { sessionId: string; model: string }> = {};
+  private db: DatabaseSync | null = null;
 
-  constructor(storePath?: string) {
-    this.path = storePath ?? join(process.env.HOME ?? '/tmp', '.copilot-remote', 'sessions.json');
-    this.load();
+  constructor() {
+    this.loadChatMap();
+    this.openDb();
   }
 
+  private openDb(): void {
+    try {
+      if (existsSync(DB_PATH)) {
+        this.db = new DatabaseSync(DB_PATH, { open: true });
+        log.info('[store] Opened shared session DB:', DB_PATH);
+      }
+    } catch (e) {
+      log.error('[store] Failed to open session DB:', e);
+    }
+  }
+
+  /** Get the session entry for a chat */
   get(chatId: string): SessionEntry | undefined {
-    return this.data[chatId];
+    const mapping = this.chatMap[chatId];
+    if (!mapping) return undefined;
+    const row = this.getDbSession(mapping.sessionId);
+    return {
+      sessionId: mapping.sessionId,
+      cwd: row?.cwd ?? '',
+      model: mapping.model,
+      createdAt: row ? new Date(row.created_at + 'Z').getTime() : 0,
+      lastUsed: row ? new Date(row.updated_at + 'Z').getTime() : 0,
+    };
   }
 
+  /** Map a chat to a session */
   set(chatId: string, entry: SessionEntry): void {
-    this.data[chatId] = entry;
-    this.save();
+    this.chatMap[chatId] = { sessionId: entry.sessionId, model: entry.model };
+    this.saveChatMap();
   }
 
-  touch(chatId: string): void {
-    if (this.data[chatId]) {
-      this.data[chatId].lastUsed = Date.now();
-      this.save();
-    }
-  }
+  /** Touch = no-op (DB updated_at is managed by SDK) */
+  touch(_chatId: string): void {}
 
+  /** Remove chat→session mapping */
   delete(chatId: string): void {
-    delete this.data[chatId];
-    this.save();
+    delete this.chatMap[chatId];
+    this.saveChatMap();
   }
 
+  /** List all sessions from SQLite DB, sorted by most recent */
   list(): [string, SessionEntry][] {
-    return Object.entries(this.data).sort((a, b) => b[1].lastUsed - a[1].lastUsed);
-  }
-
-  private load(): void {
+    if (!this.db) return this.legacyList();
     try {
-      this.data = JSON.parse(readFileSync(this.path, 'utf-8'));
-    } catch {
-      this.data = {};
+      const rows = this.db.prepare(
+        'SELECT id, cwd, summary, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 20'
+      ).all() as unknown as DbSession[];
+      // Build reverse map: sessionId → chatId
+      const reverseMap: Record<string, string> = {};
+      for (const [chatId, m] of Object.entries(this.chatMap)) {
+        reverseMap[m.sessionId] = chatId;
+      }
+      return rows.map(row => {
+        const chatId = reverseMap[row.id] ?? row.id;
+        return [chatId, {
+          sessionId: row.id,
+          cwd: row.cwd ?? '',
+          model: this.chatMap[chatId]?.model ?? '',
+          createdAt: new Date(row.created_at + 'Z').getTime(),
+          lastUsed: new Date(row.updated_at + 'Z').getTime(),
+        }] as [string, SessionEntry];
+      });
+    } catch (e) {
+      log.error('[store] Failed to list sessions:', e);
+      return [];
     }
   }
 
-  private save(): void {
+  /** Get session summary from DB */
+  getSummary(sessionId: string): string | null {
+    const row = this.getDbSession(sessionId);
+    return row?.summary ?? null;
+  }
+
+  /** Search sessions using FTS5 index */
+  search(query: string, limit = 5): { sessionId: string; snippet: string; summary: string | null }[] {
+    if (!this.db) return [];
     try {
-      mkdirSync(dirname(this.path), { recursive: true });
-      writeFileSync(this.path, JSON.stringify(this.data, null, 2));
-    } catch {
-      /* ignore */
+      const rows = this.db.prepare(
+        `SELECT DISTINCT s.id, s.summary, snippet(search_index, 0, '<b>', '</b>', '...', 32) as snip
+         FROM search_index si
+         JOIN sessions s ON s.id = si.session_id
+         WHERE search_index MATCH ?
+         LIMIT ?`
+      ).all(query, limit) as unknown as Array<{ id: string; summary: string | null; snip: string }>;
+      return rows.map(r => ({ sessionId: r.id, snippet: r.snip, summary: r.summary }));
+    } catch (e) {
+      log.debug('[store] Search failed:', e);
+      return [];
     }
+  }
+
+  /** Get turn count for a session */
+  getTurnCount(sessionId: string): number {
+    if (!this.db) return 0;
+    try {
+      const row = this.db.prepare('SELECT COUNT(*) as cnt FROM turns WHERE session_id = ?').get(sessionId) as unknown as { cnt: number };
+      return row?.cnt ?? 0;
+    } catch { return 0; }
+  }
+
+  private getDbSession(sessionId: string): DbSession | undefined {
+    if (!this.db) return undefined;
+    try {
+      return this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as unknown as DbSession | undefined;
+    } catch { return undefined; }
+  }
+
+  private legacyList(): [string, SessionEntry][] {
+    return Object.entries(this.chatMap)
+      .map(([chatId, m]) => [chatId, { sessionId: m.sessionId, cwd: '', model: m.model, createdAt: 0, lastUsed: 0 }] as [string, SessionEntry])
+      .sort((a, b) => b[1].lastUsed - a[1].lastUsed);
+  }
+
+  private loadChatMap(): void {
+    try {
+      this.chatMap = JSON.parse(readFileSync(CHAT_MAP_PATH, 'utf-8'));
+    } catch {
+      // Try migrating from old sessions.json
+      try {
+        const oldPath = join(process.env.HOME ?? '/tmp', '.copilot-remote', 'sessions.json');
+        const old = JSON.parse(readFileSync(oldPath, 'utf-8')) as Record<string, SessionEntry>;
+        for (const [chatId, entry] of Object.entries(old)) {
+          this.chatMap[chatId] = { sessionId: entry.sessionId, model: entry.model };
+        }
+        this.saveChatMap();
+        log.info('[store] Migrated from sessions.json → chat-sessions.json');
+      } catch {
+        this.chatMap = {};
+      }
+    }
+  }
+
+  private saveChatMap(): void {
+    try {
+      mkdirSync(dirname(CHAT_MAP_PATH), { recursive: true });
+      writeFileSync(CHAT_MAP_PATH, JSON.stringify(this.chatMap, null, 2));
+    } catch { /* ignore */ }
   }
 }
