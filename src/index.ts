@@ -936,6 +936,9 @@ async function main(): Promise<void> {
   async function sendConfigMenu(chatId: string, editId?: number) {
     const c = cfg(chatId);
     const s = sessions.get(chatId);
+    // Prefix callback data with session key so callbacks in topics resolve correctly
+    // Telegram doesn't include message_thread_id in callback_query.message
+    const pfx = (d: string) => `@${chatId}|${d}`;
 
     // Get current mode
     let mode = 'interactive';
@@ -956,14 +959,14 @@ async function main(): Promise<void> {
       (c.agent ? '\nAgent: `' + c.agent + '`' : '');
     const buttons = [
       [
-        { text: modeLabel('interactive')!, data: 'mode:interactive' },
-        { text: modeLabel('plan')!, data: 'mode:plan' },
-        { text: modeLabel('autopilot')!, data: 'mode:autopilot' },
+        { text: modeLabel('interactive')!, data: pfx('mode:interactive') },
+        { text: modeLabel('plan')!, data: pfx('mode:plan') },
+        { text: modeLabel('autopilot')!, data: pfx('mode:autopilot') },
       ],
-      [{ text: '🤖 Change Model', data: 'cfg:modelPicker' }],
-      [{ text: '🧠 Reasoning: ' + c.reasoningEffort, data: 'cfg:reasoning' }],
-      [{ text: '🔒 Tool Security', data: 'cfg:security' }],
-      [{ text: '🎨 Display', data: 'cfg:display' }],
+      [{ text: '🤖 Change Model', data: pfx('cfg:modelPicker') }],
+      [{ text: '🧠 Reasoning: ' + c.reasoningEffort, data: pfx('cfg:reasoning') }],
+      [{ text: '🔒 Tool Security', data: pfx('cfg:security') }],
+      [{ text: '🎨 Display', data: pfx('cfg:display') }],
     ];
     if (editId) {
       await client.editButtons(chatId, editId, text, buttons);
@@ -974,6 +977,7 @@ async function main(): Promise<void> {
 
   async function sendReasoningMenu(chatId: string, editId: number) {
     const c = cfg(chatId);
+    const pfx = (d: string) => `@${chatId}|${d}`;
     // Find current model's supported reasoning efforts
     const modelInfo = cachedModels.find((m) => (m.id ?? m.name) === c.model);
     const supported: string[] = modelInfo?.supportedReasoningEfforts ?? [];
@@ -982,7 +986,7 @@ async function main(): Promise<void> {
         chatId,
         editId,
         '🧠 *Reasoning Effort*\n⚠️ ' + c.model + ' does not support reasoning effort.',
-        [[{ text: '← Back', data: 'cfg:back' }]],
+        [[{ text: '← Back', data: pfx('cfg:back') }]],
       );
       return;
     }
@@ -995,10 +999,10 @@ async function main(): Promise<void> {
     const levels = ['none', ...supported];
     const allLabels: Record<string, string> = { none: '⚪ Off', ...labels };
     const buttons = levels.map((l) => [
-      { text: (l === c.reasoningEffort ? '● ' : '') + (allLabels[l] ?? l), data: 'reason:' + l },
+      { text: (l === c.reasoningEffort ? '● ' : '') + (allLabels[l] ?? l), data: pfx('reason:' + l) },
     ]);
     const defaultNote = modelInfo?.defaultReasoningEffort ? ` (default: ${modelInfo.defaultReasoningEffort})` : '';
-    buttons.push([{ text: '← Back', data: 'cfg:back' }]);
+    buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
     await client.editButtons(
       chatId,
       editId,
@@ -1009,36 +1013,39 @@ async function main(): Promise<void> {
 
   async function sendDisplayMenu(chatId: string, editId: number) {
     const c = cfg(chatId);
+    const pfx = (d: string) => `@${chatId}|${d}`;
     const t = (v: boolean) => (v ? '✅' : '⬜');
     const buttons = [
       [
-        { text: t(c.showThinking) + ' Thinking', data: 'dsp:showThinking' },
-        { text: t(c.showTools) + ' Tools', data: 'dsp:showTools' },
+        { text: t(c.showThinking) + ' Thinking', data: pfx('dsp:showThinking') },
+        { text: t(c.showTools) + ' Tools', data: pfx('dsp:showTools') },
       ],
       [
-        { text: t(c.showUsage) + ' Usage', data: 'dsp:showUsage' },
-        { text: t(c.showReactions) + ' Reactions', data: 'dsp:showReactions' },
+        { text: t(c.showUsage) + ' Usage', data: pfx('dsp:showUsage') },
+        { text: t(c.showReactions) + ' Reactions', data: pfx('dsp:showReactions') },
       ],
-      [{ text: '← Back', data: 'cfg:back' }],
+      [{ text: '← Back', data: pfx('cfg:back') }],
     ];
     await client.editButtons(chatId, editId, '🎨 *Display*\nToggle what shows in responses:', buttons);
   }
 
   async function sendSecurityMenu(chatId: string, editId: number) {
     const c = cfg(chatId);
+    const pfx = (d: string) => `@${chatId}|${d}`;
     const t = (v: boolean) => (v ? '✅' : '⬜');
     const buttons: { text: string; data: string }[][] = [];
     for (const [kind, label] of Object.entries(PERM_KIND_LABELS)) {
-      buttons.push([{ text: t(c.autoApprove[kind as PermKind]) + ' ' + label, data: 'sec:' + kind }]);
+      buttons.push([{ text: t(c.autoApprove[kind as PermKind]) + ' ' + label, data: pfx('sec:' + kind) }]);
     }
     const allOn = Object.values(c.autoApprove).every(Boolean);
-    buttons.push([{ text: allOn ? '🔓 Revoke All' : '✅ Approve All', data: 'sec:toggle-all' }]);
-    buttons.push([{ text: '← Back', data: 'cfg:back' }]);
+    buttons.push([{ text: allOn ? '🔓 Revoke All' : '✅ Approve All', data: pfx('sec:toggle-all') }]);
+    buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
     await client.editButtons(chatId, editId, '🔒 *Tool Security*\nAuto-approve by type:', buttons);
   }
 
   async function sendModelPicker(chatId: string, editId: number) {
     const c = cfg(chatId);
+    const pfx = (d: string) => `@${chatId}|${d}`;
     // Ensure we have models cached - create session if needed
     if (!cachedModels.length) {
       try {
@@ -1059,10 +1066,12 @@ async function main(): Promise<void> {
     const buttons: { text: string; data: string }[][] = [];
     for (let i = 0; i < modelIds.length; i += 2) {
       buttons.push(
-        modelIds.slice(i, i + 2).map((m: string) => ({ text: (m === c.model ? '● ' : '') + m, data: 'model:' + m })),
+        modelIds
+          .slice(i, i + 2)
+          .map((m: string) => ({ text: (m === c.model ? '● ' : '') + m, data: pfx('model:' + m) })),
       );
     }
-    buttons.push([{ text: '← Back', data: 'cfg:back' }]);
+    buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
     await client.editButtons(chatId, editId, '🤖 *Select Model*', buttons);
   }
 
@@ -1152,8 +1161,16 @@ async function main(): Promise<void> {
     // Always answer callback to dismiss loading spinner
     client.answerCallback?.(callbackId);
 
-    // Resolve session key for topic-aware routing
-    const chatId = threadId ? sessionKey(rawChatId, threadId) : rawChatId;
+    // Extract session key from callback data prefix: @sessionKey|actualData
+    let chatId: string;
+    if (data.startsWith('@') && data.includes('|')) {
+      const pipeIdx = data.indexOf('|');
+      chatId = data.slice(1, pipeIdx);
+      data = data.slice(pipeIdx + 1);
+    } else {
+      // Legacy callbacks or permission buttons without prefix
+      chatId = threadId ? sessionKey(rawChatId, threadId) : rawChatId;
+    }
 
     if (data.startsWith('perm:')) {
       const s = sessions.get(chatId);
