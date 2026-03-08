@@ -77,6 +77,7 @@ async function main(): Promise<void> {
     showUsage: boolean;
     showThinking: boolean;
     showTools: boolean;
+    showReactions: boolean;
     allowAllTools: boolean;
     model: string;
     agent: string | null;
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     showUsage: false,
     showThinking: false,
     showTools: false,
+    showReactions: true,
     allowAllTools: false,
     model: 'claude-sonnet-4',
     agent: null,
@@ -138,10 +140,10 @@ async function main(): Promise<void> {
     }
 
     // Status reactions on user's message
-    const react = (emoji: string) => telegram.setReaction(chatId, messageId, emoji);
+    const cfg = getConfig(chatId);
+    const react = cfg.showReactions ? (emoji: string) => telegram.setReaction(chatId, messageId, emoji) : async (_: string) => {};
     await react('🤔');
     await telegram.sendTyping(chatId);
-    const cfg = getConfig(chatId);
 
     // Stream state — one message, continuously edited
     let streamMsgId: number | null = null;
@@ -452,24 +454,6 @@ async function main(): Promise<void> {
         break;
       }
 
-      case '/models': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) {
-          await telegram.sendMessage(chatId, 'Start a session first to list models.');
-          break;
-        }
-        try {
-          const models = await session.listModels();
-          cachedModels = models.map(m => (m as any).id ?? (m as any).name ?? String(m)).filter(Boolean);
-          const cfg = getConfig(chatId);
-          const lines = cachedModels.map(m => (m === cfg.model ? '● ' : '  ') + '`' + m + '`');
-          await telegram.sendMessage(chatId, '🤖 *Available Models* (' + cachedModels.length + ')\n\n' + lines.join('\n'));
-        } catch (err) {
-          await telegram.sendMessage(chatId, '❌ ' + String(err));
-        }
-        break;
-      }
-
       case '/agent': {
         const agentName = args[0] || null;
         const cfg = getConfig(chatId);
@@ -511,8 +495,7 @@ async function main(): Promise<void> {
           '`/abort` — Cancel current request',
           '',
           '*Customization*',
-          '`/config` — Settings (model, tools, display)',
-          '`/models` — List available models',
+          '`/config` — Settings (model, reactions, tools)',
           '`/agent [name]` — Switch custom agent',
           '',
           'Or just type a prompt — session auto-starts.',
@@ -525,14 +508,18 @@ async function main(): Promise<void> {
   async function sendConfigMenu(chatId: string, editMsgId?: number): Promise<void> {
     const cfg = getConfig(chatId);
     const toggle = (v: boolean) => v ? '✅' : '⬜';
-    const text = '⚙️ *Settings*\nModel: `' + cfg.model + '`';
+    const agentLine = cfg.agent ? '\nAgent: `' + cfg.agent + '`' : '';
+    const text = '⚙️ *Settings*\nModel: `' + cfg.model + '`' + agentLine;
     const buttons = [
       [
         { text: toggle(cfg.showThinking) + ' Thinking', data: 'cfg:showThinking' },
         { text: toggle(cfg.showTools) + ' Tools', data: 'cfg:showTools' },
       ],
       [
-        { text: toggle(cfg.showUsage) + ' Usage Stats', data: 'cfg:showUsage' },
+        { text: toggle(cfg.showUsage) + ' Usage', data: 'cfg:showUsage' },
+        { text: toggle(cfg.showReactions) + ' Reactions', data: 'cfg:showReactions' },
+      ],
+      [
         { text: toggle(cfg.allowAllTools) + ' Auto-approve', data: 'cfg:allowAllTools' },
       ],
       [{ text: '🤖 Change Model', data: 'cfg:modelPicker' }],
