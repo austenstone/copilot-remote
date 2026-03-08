@@ -93,12 +93,18 @@ async function main(): Promise<void> {
     chatConfigs.set(chatId, cfg);
   };
 
-  telegram.setMessageHandler(async (text: string, chatId: string, messageId: number) => {
-    console.log('[Message] ' + chatId + ': ' + text);
+  telegram.setMessageHandler(async (text: string, chatId: string, messageId: number, replyText?: string) => {
+    console.log('[Message] ' + chatId + ': ' + text + (replyText ? ' [reply to: ' + replyText.slice(0, 50) + '...]' : ''));
 
     if (text.startsWith('/')) {
       await handleCommand(text, chatId);
       return;
+    }
+
+    // If replying to a message, prepend context
+    let prompt = text;
+    if (replyText) {
+      prompt = 'Context (from a previous message I\'m replying to):\n"""\n' + replyText + '\n"""\n\nMy message: ' + text;
     }
 
     // Get or create session
@@ -259,7 +265,7 @@ async function main(): Promise<void> {
     session.on('result', onResult);
 
     try {
-      const response = await session.send(text);
+      const response = await session.send(prompt);
 
       if (editTimer) { clearTimeout(editTimer); editTimer = null; }
       session.off('thinking', onThinking);

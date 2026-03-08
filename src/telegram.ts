@@ -18,7 +18,7 @@ export class TelegramBridge {
   private baseUrl: string;
   private offset = 0;
   private polling = false;
-  private onMessage: ((text: string, chatId: string, messageId: number) => void) | null = null;
+  private onMessage: ((text: string, chatId: string, messageId: number, replyText?: string) => void) | null = null;
   private onCallback: ((callbackId: string, data: string, chatId: string, messageId: number) => void) | null = null;
   private pairedUser: string | null = null;
 
@@ -29,7 +29,7 @@ export class TelegramBridge {
     }
   }
 
-  setMessageHandler(handler: (text: string, chatId: string, messageId: number) => void): void {
+  setMessageHandler(handler: (text: string, chatId: string, messageId: number, replyText?: string) => void): void {
     this.onMessage = handler;
   }
 
@@ -68,7 +68,7 @@ export class TelegramBridge {
               continue;
             }
 
-            this.onMessage?.(msg.text, String(msg.chat.id), msg.message_id);
+            this.onMessage?.(msg.text, String(msg.chat.id), msg.message_id, msg.reply_to_message?.text);
           }
 
           // Handle callback queries (inline button presses)
