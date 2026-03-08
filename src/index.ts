@@ -994,15 +994,15 @@ async function main(): Promise<void> {
       return;
     }
     const labels: Record<string, string> = {
-      low: '🐇 Low',
-      medium: '⚖️ Medium',
-      high: '🧠 High',
-      xhigh: '🔥 XHigh',
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      xhigh: 'XHigh',
     };
     const levels = ['none', ...supported];
-    const allLabels: Record<string, string> = { none: '⚪ Off', ...labels };
+    const allLabels: Record<string, string> = { none: 'Off', ...labels };
     const buttons = levels.map((l) => [
-      { text: (l === c.reasoningEffort ? '● ' : '') + (allLabels[l] ?? l), data: pfx('reason:' + l) },
+      { text: allLabels[l] ?? l, data: pfx('reason:' + l), ...(l === c.reasoningEffort ? { style: 'success' } : {}) },
     ]);
     const defaultNote = modelInfo?.defaultReasoningEffort ? ` (default: ${modelInfo.defaultReasoningEffort})` : '';
     buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
@@ -1017,15 +1017,17 @@ async function main(): Promise<void> {
   async function sendDisplayMenu(chatId: string, editId: number) {
     const c = cfg(chatId);
     const pfx = (d: string) => `@${chatId}|${d}`;
-    const t = (v: boolean) => (v ? '✅' : '⬜');
+    const toggle = (on: boolean, label: string, data: string) => ({
+      text: label, data, ...(on ? { style: 'success' } : {}),
+    });
     const buttons = [
       [
-        { text: t(c.showThinking) + ' Thinking', data: pfx('dsp:showThinking') },
-        { text: t(c.showTools) + ' Tools', data: pfx('dsp:showTools') },
+        toggle(c.showThinking, 'Thinking', pfx('dsp:showThinking')),
+        toggle(c.showTools, 'Tools', pfx('dsp:showTools')),
       ],
       [
-        { text: t(c.showUsage) + ' Usage', data: pfx('dsp:showUsage') },
-        { text: t(c.showReactions) + ' Reactions', data: pfx('dsp:showReactions') },
+        toggle(c.showUsage, 'Usage', pfx('dsp:showUsage')),
+        toggle(c.showReactions, 'Reactions', pfx('dsp:showReactions')),
       ],
       [{ text: '← Back', data: pfx('cfg:back') }],
     ];
@@ -1035,13 +1037,17 @@ async function main(): Promise<void> {
   async function sendSecurityMenu(chatId: string, editId: number) {
     const c = cfg(chatId);
     const pfx = (d: string) => `@${chatId}|${d}`;
-    const t = (v: boolean) => (v ? '✅' : '⬜');
-    const buttons: { text: string; data: string }[][] = [];
+    const buttons: { text: string; data: string; style?: string }[][] = [];
     for (const [kind, label] of Object.entries(PERM_KIND_LABELS)) {
-      buttons.push([{ text: t(c.autoApprove[kind as PermKind]) + ' ' + label, data: pfx('sec:' + kind) }]);
+      const on = c.autoApprove[kind as PermKind];
+      buttons.push([{ text: label, data: pfx('sec:' + kind), ...(on ? { style: 'success' } : {}) }]);
     }
     const allOn = Object.values(c.autoApprove).every(Boolean);
-    buttons.push([{ text: allOn ? '🔓 Revoke All' : '✅ Approve All', data: pfx('sec:toggle-all') }]);
+    buttons.push([{
+      text: allOn ? 'Revoke All' : 'Approve All',
+      data: pfx('sec:toggle-all'),
+      ...(allOn ? { style: 'danger' } : { style: 'success' }),
+    }]);
     buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
     await client.editButtons(chatId, editId, '🔒 *Tool Security*\nAuto-approve by type:', buttons);
   }
@@ -1071,7 +1077,7 @@ async function main(): Promise<void> {
       buttons.push(
         modelIds
           .slice(i, i + 2)
-          .map((m: string) => ({ text: (m === c.model ? '● ' : '') + m, data: pfx('model:' + m) })),
+          .map((m: string) => ({ text: m, data: pfx('model:' + m), ...(m === c.model ? { style: 'success' } : {}) })),
       );
     }
     buttons.push([{ text: '← Back', data: pfx('cfg:back') }]);
