@@ -1,1041 +1,493 @@
-// ============================================================
-// Copilot Remote — Main Entry Point
-// ============================================================
-// Bridges Copilot CLI ↔ Telegram via @github/copilot-sdk.
-// Full customization: agents, skills, MCP, prompt files.
-// ============================================================
-
+// Copilot Remote — Telegram ↔ Copilot SDK bridge
 import { Session } from './session.js';
 import { TelegramBridge } from './telegram.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-function findBinary(name: string): string {
-  try {
-    return execSync('which ' + name, { encoding: 'utf-8' }).trim();
-  } catch {
-    return name;
-  }
+function findBin(name: string): string {
+  try { return execSync('which ' + name, { encoding: 'utf-8' }).trim(); } catch { return name; }
 }
 
-interface Config {
-  botToken: string;
-  allowedUsers: string[];
-  workDir: string;
-  copilotBinary?: string;
-}
-
-function loadConfig(): Config {
-  const configPath = path.join(process.cwd(), '.copilot-remote.json');
-
-  if (fs.existsSync(configPath)) {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    return JSON.parse(raw);
-  }
+function loadConfig() {
+  const cfgPath = path.join(process.cwd(), '.copilot-remote.json');
+  if (fs.existsSync(cfgPath)) return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
 
   const botToken = process.env.COPILOT_REMOTE_BOT_TOKEN;
-  const allowedUsers = process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [];
-  const workDir = process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd();
-  const copilotBinary = process.env.COPILOT_REMOTE_BINARY;
-
-  if (!botToken) {
-    console.error('Missing bot token. Set COPILOT_REMOTE_BOT_TOKEN or create .copilot-remote.json');
-    process.exit(1);
-  }
-
-  return { botToken, allowedUsers, workDir, copilotBinary };
+  if (!botToken) { console.error('Missing COPILOT_REMOTE_BOT_TOKEN'); process.exit(1); }
+  return {
+    botToken,
+    allowedUsers: process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
+    workDir: process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
+    copilotBinary: process.env.COPILOT_REMOTE_BINARY,
+  };
 }
+
+// ── Passthrough commands: just prompt Copilot with context ──
+const PROMPT_COMMANDS: Record<string, { usage?: string; prompt: (args: string) => string }> = {
+  '/research':     { usage: '`/research <topic>`', prompt: a => 'Research this topic thoroughly using web search and GitHub: ' + a },
+  '/diff':         { prompt: () => 'Review all uncommitted changes. Show a summary and any issues.' },
+  '/review':       { prompt: () => 'Thorough code review of recent changes. Check bugs, security, style.' },
+  '/share':        { prompt: () => 'Share this conversation as a markdown summary.' },
+  '/init':         { prompt: () => 'Initialize copilot-instructions.md with sensible defaults for this codebase.' },
+  '/tasks':        { prompt: () => 'List all active background tasks and subagents.' },
+  '/instructions': { prompt: () => 'Show which custom instruction files are active in this repository.' },
+  '/skills':       { prompt: () => 'List all available skills and their status.' },
+  '/mcp':          { prompt: () => 'Show configured MCP servers and their status.' },
+};
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const copilotBin = config.copilotBinary ?? findBinary('copilot');
+  const bin = config.copilotBinary ?? findBin('copilot');
 
-  console.log('╔══════════════════════════════════════╗');
-  console.log('║       ⚡ Copilot Remote v0.5.0       ║');
-  console.log('╠══════════════════════════════════════╣');
-  console.log('║  Copilot CLI ↔ Telegram Bridge       ║');
-  console.log('║  @github/copilot-sdk + streaming      ║');
-  console.log('╚══════════════════════════════════════╝');
-  console.log('');
-  console.log('Work dir:', config.workDir);
-  console.log('Binary:', copilotBin);
-  console.log('Allowed users:', config.allowedUsers.length > 0 ? config.allowedUsers.join(', ') : 'auto-pair first user');
-  console.log('');
+  console.log('⚡ Copilot Remote v0.5 | dir: ' + config.workDir);
 
-  const telegram = new TelegramBridge({
-    botToken: config.botToken,
-    allowedUsers: config.allowedUsers,
-  });
+  const tg = new TelegramBridge({ botToken: config.botToken, allowedUsers: config.allowedUsers });
 
-  // Per-chat state
+  // ── Per-chat state ──
+  interface ChatConfig { showUsage: boolean; showThinking: boolean; showTools: boolean; showReactions: boolean; autopilot: boolean; model: string; agent: string | null }
+  const defaultCfg: ChatConfig = { showUsage: false, showThinking: false, showTools: false, showReactions: true, autopilot: false, model: 'claude-sonnet-4', agent: null };
+
   const sessions = new Map<string, Session>();
-  const chatWorkDirs = new Map<string, string>();
-
-  // Per-chat config with defaults
-  interface ChatConfig {
-    showUsage: boolean;
-    showThinking: boolean;
-    showTools: boolean;
-    showReactions: boolean;
-    autopilot: boolean;
-    model: string;
-    agent: string | null;
-  }
-  const defaultConfig: ChatConfig = {
-    showUsage: false,
-    showThinking: false,
-    showTools: false,
-    showReactions: true,
-    autopilot: false,
-    model: 'claude-sonnet-4',
-    agent: null,
-  };
-
-  // Models loaded dynamically from SDK
+  const workDirs = new Map<string, string>();
+  const configs = new Map<string, ChatConfig>();
+  const pendingPerms = new Map<number, string>();
   let cachedModels: string[] = [];
 
-  // Track pending permission approval messages: telegram msgId → chatId
-  const pendingPermissions = new Map<number, string>();
+  const cfg = (id: string) => configs.get(id) ?? { ...defaultCfg };
+  const setCfg = (id: string, c: ChatConfig) => configs.set(id, c);
+  const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
-  const chatConfigs = new Map<string, ChatConfig>();
-  const getConfig = (chatId: string): ChatConfig => {
-    return chatConfigs.get(chatId) ?? { ...defaultConfig };
-  };
-  const setConfig = (chatId: string, cfg: ChatConfig) => {
-    chatConfigs.set(chatId, cfg);
-  };
+  // Get or create session
+  async function getSession(chatId: string): Promise<Session> {
+    let s = sessions.get(chatId);
+    if (s?.alive) return s;
+    s = new Session();
+    const c = cfg(chatId);
+    await s.start({ cwd: workDir(chatId), binary: bin, model: c.model, autopilot: c.autopilot, agent: c.agent ?? undefined });
+    s.autopilot = c.autopilot;
+    sessions.set(chatId, s);
+    return s;
+  }
 
-  telegram.setMessageHandler(async (text: string, chatId: string, messageId: number, replyText?: string, replyToMsgId?: number) => {
-    console.log('[Message] ' + chatId + ': ' + text + (replyText ? ' [reply to: ' + replyText.slice(0, 50) + '...]' : ''));
+  // ── Prompt handler (streaming + reactions) ──
+  async function handlePrompt(chatId: string, msgId: number, prompt: string): Promise<void> {
+    const session = await getSession(chatId);
+    const c = cfg(chatId);
+    const react = c.showReactions ? (e: string) => tg.setReaction(chatId, msgId, e) : async () => {};
+    await react('🤔');
+    await tg.sendTyping(chatId);
 
-    // Check if replying to a permission message
-    if (replyToMsgId && pendingPermissions.has(replyToMsgId)) {
+    let streamMsgId: number | null = null;
+    let thinkingText = '', responseText = '';
+    let toolLines: string[] = [];
+    let lastEdit = 0, timer: NodeJS.Timeout | null = null;
+    const THROTTLE = 1200;
+
+    const display = () => {
+      const p: string[] = [];
+      if (thinkingText) {
+        const s = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
+        p.push('💭 _' + s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&') + '_');
+      }
+      if (toolLines.length) p.push(toolLines.join('\n'));
+      if (responseText) p.push(responseText);
+      return p.join('\n\n');
+    };
+
+    const flush = async () => {
+      timer = null;
+      lastEdit = Date.now();
+      const text = display();
+      if (!text.trim()) return;
+      if (!streamMsgId) {
+        if (text.length < 15) return;
+        streamMsgId = await tg.sendMessage(chatId, text, { replyTo: msgId, disableLinkPreview: true });
+      } else {
+        await tg.editMessage(chatId, streamMsgId, text);
+      }
+    };
+
+    const schedEdit = () => { if (!timer) timer = setTimeout(flush, Math.max(0, THROTTLE - (Date.now() - lastEdit))); };
+
+    const prettyTool: Record<string, string> = {
+      read_file: '📖 Read', edit_file: '✏️ Edit', create_file: '📝 Create', bash: '▶️ Run',
+      view: '👁 View', list_dir: '📂 List', search: '🔍 Search', grep_search: '🔍 Search',
+      think: '💡 Think', glob: '📂 Glob', delete_file: '🗑 Delete', write_file: '📝 Write',
+    };
+
+    const onThink = (t: string) => { if (c.showThinking) { thinkingText += t; schedEdit(); } };
+    const onDelta = (t: string) => { thinkingText = ''; responseText += t; schedEdit(); };
+    const onToolStart = (t: any) => {
+      tg.sendTyping(chatId);
+      react('👨‍💻');
+      if (!c.showTools) return;
+      const label = prettyTool[t.toolName] ?? '🔧 ' + t.toolName;
+      let detail = '';
+      if (t.arguments?.command) detail = ' `' + t.arguments.command.slice(0, 60) + '`';
+      else if (t.arguments?.file_path) detail = ' `' + t.arguments.file_path + '`';
+      toolLines.push(label + detail);
+      schedEdit();
+    };
+    const onToolEnd = (t: any) => {
+      if (!c.showTools || !toolLines.length) return;
+      toolLines[toolLines.length - 1] += t.success !== false ? ' ✓' : ' ✗';
+      schedEdit();
+    };
+    const onPerm = async (req: any) => {
+      const p = req.permissionRequest ?? req;
+      const icons: Record<string, string> = { shell: '⚡', write: '✏️', url: '🌐', mcp: '🔌', read: '📖' };
+      const icon = icons[p.kind] ?? '🔐';
+      let title = p.kind === 'shell' ? 'Run command' : p.kind === 'url' ? 'Fetch URL' : p.kind === 'write' ? 'Write file' : p.kind;
+      let detail = p.kind === 'shell' ? '```\n' + (p.fullCommandText ?? '').slice(0, 300) + '\n```'
+                 : p.kind === 'url' ? '`' + (p.url ?? '').slice(0, 200) + '`'
+                 : p.intention ?? '';
+      if (p.intention && p.kind !== detail) detail += '\n_' + p.intention + '_';
+      const id = await tg.sendMessageWithButtons(chatId, icon + ' *' + title + '*\n' + detail, [
+        [{ text: '✅ Approve', data: 'perm:yes' }, { text: '❌ Deny', data: 'perm:no' }, { text: '✅ All', data: 'perm:all' }],
+      ]);
+      if (id) pendingPerms.set(id, chatId);
+    };
+
+    session.on('thinking', onThink);
+    session.on('delta', onDelta);
+    session.on('tool_start', onToolStart);
+    session.on('tool_complete', onToolEnd);
+    session.on('permission_request', onPerm);
+
+    const cleanup = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      session.off('thinking', onThink);
+      session.off('delta', onDelta);
+      session.off('tool_start', onToolStart);
+      session.off('tool_complete', onToolEnd);
+      session.off('permission_request', onPerm);
+    };
+
+    try {
+      const res = await session.send(prompt);
+      cleanup();
+
+      let final = res.content;
+      if (c.showUsage) {
+        try {
+          const q = await session.getQuota();
+          const s = (q as any)?.quotaSnapshots?.[0];
+          if (s) final += '\n\n`' + s.usedRequests + '/' + s.entitlementRequests + ' reqs (' + s.remainingPercentage + '% left)`';
+        } catch {}
+      }
+
+      if (streamMsgId && final.length <= 4096) {
+        await tg.editMessage(chatId, streamMsgId, final);
+      } else if (streamMsgId) {
+        await tg.editMessage(chatId, streamMsgId, final.slice(0, 4096));
+        await tg.sendMessage(chatId, final.slice(4096), { disableLinkPreview: true });
+      } else {
+        await tg.sendMessage(chatId, final, { replyTo: msgId, disableLinkPreview: true });
+      }
+      await tg.removeReaction(chatId, msgId);
+    } catch (err) {
+      cleanup();
+      await react('😱');
+      await tg.sendMessage(chatId, '❌ ' + String(err));
+    }
+  }
+
+  // ── Message handler ──
+  tg.setMessageHandler(async (text, chatId, messageId, replyText, replyToMsgId) => {
+    // Reply to permission message
+    if (replyToMsgId && pendingPerms.has(replyToMsgId)) {
       const lower = text.toLowerCase().trim();
-      const session = sessions.get(chatId);
-      if (session?.alive && (lower === 'yes' || lower === 'y' || lower === 'approve' || lower === '👍')) {
-        session.approve();
-        pendingPermissions.delete(replyToMsgId);
-        await telegram.editMessageButtons(chatId, replyToMsgId, '✅ Approved', []);
-        return;
-      } else if (session?.alive && (lower === 'no' || lower === 'n' || lower === 'deny' || lower === '👎')) {
-        session.deny();
-        pendingPermissions.delete(replyToMsgId);
-        await telegram.editMessageButtons(chatId, replyToMsgId, '❌ Denied', []);
-        return;
+      const s = sessions.get(chatId);
+      if (s?.alive) {
+        if (['yes', 'y', 'approve', '👍'].includes(lower)) { s.approve(); pendingPerms.delete(replyToMsgId); await tg.editMessageButtons(chatId, replyToMsgId, '✅ Approved', []); return; }
+        if (['no', 'n', 'deny', '👎'].includes(lower)) { s.deny(); pendingPerms.delete(replyToMsgId); await tg.editMessageButtons(chatId, replyToMsgId, '❌ Denied', []); return; }
       }
     }
 
-    if (text.startsWith('/')) {
-      await handleCommand(text, chatId, messageId);
-      return;
-    }
+    if (text.startsWith('/')) return handleCommand(text, chatId, messageId);
 
-    // If replying to a message, prepend context
     let prompt = text;
-    if (replyText) {
-      prompt = 'Context (from a previous message I\'m replying to):\n"""\n' + replyText + '\n"""\n\nMy message: ' + text;
-    }
-
+    if (replyText) prompt = 'Context (replying to):\n"""\n' + replyText + '\n"""\n\nMy message: ' + text;
     await handlePrompt(chatId, messageId, prompt);
   });
 
-  async function handlePrompt(chatId: string, messageId: number, prompt: string): Promise<void> {
-    // Get or create session
-    let session = sessions.get(chatId);
-    if (!session || !session.alive) {
-      session = new Session();
-      const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
-
-      try {
-        const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, autopilot: cfg.autopilot, agent: cfg.agent ?? undefined });
-        session.autopilot = getConfig(chatId).autopilot;
-        session.model = getConfig(chatId).model;
-        sessions.set(chatId, session);
-      } catch (err) {
-        await telegram.sendMessage(chatId, '❌ Failed to start: ' + String(err));
-        return;
-      }
-    }
-
-    if (session.busy) {
-      // Messages queue automatically in ACP mode
-      await telegram.sendTyping(chatId);
-    }
-
-    // Status reactions on user's message
-    const cfg = getConfig(chatId);
-    const react = cfg.showReactions ? (emoji: string) => telegram.setReaction(chatId, messageId, emoji) : async (_: string) => {};
-    await react('🤔');
-    await telegram.sendTyping(chatId);
-
-    // Stream state — one message, continuously edited
-    let streamMsgId: number | null = null;
-    let thinkingText = '';
-    let toolLines: string[] = [];
-    let responseText = '';
-    let phase: 'thinking' | 'tools' | 'responding' = 'thinking';
-    let lastEditTime = 0;
-    let editTimer: NodeJS.Timeout | null = null;
-    const THROTTLE_MS = 1200;
-    const MIN_INITIAL_CHARS = 15;
-
-    const buildDisplay = (): string => {
-      const parts: string[] = [];
-      if (thinkingText) {
-        // Show last ~300 chars of thinking, italic
-        const snippet = thinkingText.length > 300 ? '...' + thinkingText.slice(-300) : thinkingText;
-        parts.push('💭 _' + snippet.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&') + '_');
-      }
-      if (toolLines.length > 0) {
-        parts.push(toolLines.join('\n'));
-      }
-      if (responseText) {
-        parts.push(responseText);
-      }
-      return parts.join('\n\n');
-    };
-
-    const flushEdit = async () => {
-      editTimer = null;
-      lastEditTime = Date.now();
-      const display = buildDisplay();
-      if (!display.trim()) return;
-
-      if (!streamMsgId) {
-        if (display.length < MIN_INITIAL_CHARS) return;
-        streamMsgId = await telegram.sendMessage(chatId, display, { replyTo: messageId, disableLinkPreview: true });
-      } else {
-        await telegram.editMessage(chatId, streamMsgId, display);
-      }
-    };
-
-    const scheduleEdit = () => {
-      if (editTimer) return;
-      const delay = Math.max(0, THROTTLE_MS - (Date.now() - lastEditTime));
-      editTimer = setTimeout(flushEdit, delay);
-    };
-
-    // Tool type classification for reactions
-    const codingTools = ['bash', 'exec', 'read_file', 'edit_file', 'create_file', 'delete_file', 'write_file', 'list_dir', 'view'];
-    const webTools = ['web_search', 'web_fetch', 'browser'];
-
-    const prettyTool: Record<string, string> = {
-      read_file: '📖 Read', edit_file: '✏️ Edit', create_file: '📝 Create',
-      bash: '▶️ Run', report_intent: '🎯 Plan', view: '👁 View',
-      list_dir: '📂 List', search: '🔍 Search', grep_search: '🔍 Search',
-      think: '💡 Think', glob: '📂 Glob', delete_file: '🗑 Delete',
-      write_file: '📝 Write',
-    };
-
-    const onThinking = (text: string) => {
-      if (!cfg.showThinking) return;
-      thinkingText += text;
-      scheduleEdit();
-    };
-
-    const onThinkingDone = () => {
-      // Keep thinking text visible until response starts
-    };
-
-    const onDelta = (text: string) => {
-      if (phase !== 'responding') {
-        phase = 'responding';
-        // Clear thinking when response starts — tools stay
-        thinkingText = '';
-      }
-      responseText += text;
-      scheduleEdit();
-    };
-
-    const onToolStart = (tool: any) => {
-      const name = tool.toolName;
-      phase = 'tools';
-
-      // React based on tool type + refresh typing
-      telegram.sendTyping(chatId);
-      if (webTools.includes(name)) react('⚡');
-      else if (codingTools.includes(name)) react('👨‍💻');
-      else react('🔥');
-
-      if (!cfg.showTools) return;
-
-      // Build tool line
-      const label = prettyTool[name] ?? '🔧 ' + name.replace(/_/g, ' ');
-      const args = tool.arguments;
-      let detail = '';
-      if (name === 'bash' && args?.command) {
-        detail = ' `' + args.command.slice(0, 60) + (args.command.length > 60 ? '...' : '') + '`';
-      } else if (args?.file_path) {
-        detail = ' `' + args.file_path + '`';
-      } else if (args?.pattern) {
-        detail = ' `' + args.pattern + '`';
-      } else if (args?.query) {
-        detail = ' "' + args.query.slice(0, 40) + '"';
-      }
-      toolLines.push(label + detail);
-      scheduleEdit();
-    };
-
-    const onToolComplete = (tool: any) => {
-      if (!cfg.showTools) return;
-      // Mark tool as done with checkmark
-      const idx = toolLines.length - 1;
-      if (idx >= 0 && tool.success !== false) {
-        toolLines[idx] = toolLines[idx] + ' ✓';
-        scheduleEdit();
-      } else if (idx >= 0) {
-        toolLines[idx] = toolLines[idx] + ' ✗';
-        scheduleEdit();
-      }
-    };
-
-    session.on('thinking', onThinking);
-    session.on('thinking_done', onThinkingDone);
-    session.on('delta', onDelta);
-    session.on('tool_start', onToolStart);
-    session.on('tool_complete', onToolComplete);
-
-    // Permission request → send inline buttons
-    const onPermission = async (req: any) => {
-      // Unwrap — event data may be nested under permissionRequest
-      const perm = req.permissionRequest ?? req;
-      const kind = perm.kind ?? 'action';
-      
-      const kindIcons: Record<string, string> = {
-        shell: '⚡', write: '✏️', url: '🌐', mcp: '🔌', read: '📖', 'custom-tool': '🔧',
-      };
-      const icon = kindIcons[kind] ?? '🔐';
-
-      let title = '';
-      let detail = '';
-
-      if (kind === 'shell') {
-        title = 'Run command';
-        const cmd = perm.fullCommandText ?? '';
-        detail = '```\n' + cmd.slice(0, 300) + '\n```';
-        if (perm.intention) detail += '\n_' + perm.intention + '_';
-      } else if (kind === 'url') {
-        title = 'Fetch URL';
-        detail = '`' + (perm.url ?? '').slice(0, 200) + '`';
-        if (perm.intention) detail += '\n_' + perm.intention + '_';
-      } else if (kind === 'write') {
-        title = 'Write file';
-        detail = '`' + (perm.path ?? perm.file_path ?? 'unknown') + '`';
-        if (perm.intention) detail += '\n_' + perm.intention + '_';
-      } else if (kind === 'mcp') {
-        title = 'MCP call';
-        detail = '`' + (perm.serverName ?? '') + '`' + (perm.toolName ? ' → `' + perm.toolName + '`' : '');
-        if (perm.intention) detail += '\n_' + perm.intention + '_';
-      } else {
-        title = kind;
-        detail = perm.intention ?? JSON.stringify(perm).slice(0, 150);
-      }
-
-      const text = icon + ' *' + title + '*\n' + detail;
-      const buttons = [
-        [
-          { text: '✅ Approve', data: 'perm:yes' },
-          { text: '❌ Deny', data: 'perm:no' },
-          { text: '✅ Approve All', data: 'perm:all' },
-        ],
-      ];
-      const msgId = await telegram.sendMessageWithButtons(chatId, text, buttons);
-      if (msgId) pendingPermissions.set(msgId, chatId);
-    };
-    session.on('permission_request', onPermission);
-
-    // Track usage for footer
-    let resultData: any = null;
-    const onResult = (data: any) => { resultData = data; };
-    session.on('result', onResult);
-
-    try {
-      const response = await session.send(prompt);
-
-      if (editTimer) { clearTimeout(editTimer); editTimer = null; }
-      session.off('thinking', onThinking);
-      session.off('thinking_done', onThinkingDone);
-      session.off('delta', onDelta);
-      session.off('tool_start', onToolStart);
-      session.off('tool_complete', onToolComplete);
-      session.off('permission_request', onPermission);
-      session.off('result', onResult);
-
-      // Build final message: clean response + usage footer
-      let finalText = response.content || '_(no response)_';
-
-      // Add usage footer if enabled
-      const usage = resultData?.usage;
-      if (cfg.showUsage && usage) {
-        const parts: string[] = [];
-        if (usage.premiumRequests) parts.push(usage.premiumRequests + ' reqs');
-        if (usage.totalApiDurationMs) parts.push((usage.totalApiDurationMs / 1000).toFixed(1) + 's');
-        const changes = usage.codeChanges;
-        if (changes && (changes.linesAdded || changes.linesRemoved)) {
-          parts.push('+' + (changes.linesAdded ?? 0) + ' -' + (changes.linesRemoved ?? 0) + ' lines');
-        }
-        if (changes?.filesModified?.length) {
-          parts.push(changes.filesModified.length + ' files');
-        }
-        if (parts.length > 0) {
-          finalText += '\n\n`' + parts.join(' · ') + '`';
-        }
-      }
-
-      if (streamMsgId && finalText.length <= 4096) {
-        await telegram.editMessage(chatId, streamMsgId, finalText);
-      } else if (streamMsgId && finalText.length > 4096) {
-        await telegram.editMessage(chatId, streamMsgId, finalText.slice(0, 4096));
-        await telegram.sendMessage(chatId, finalText.slice(4096), { disableLinkPreview: true });
-      } else {
-        await telegram.sendMessage(chatId, finalText, { replyTo: messageId, disableLinkPreview: true });
-      }
-
-      await telegram.removeReaction(chatId, messageId);
-      if (session.currentSessionId) {
-        console.log('[Session] Conversation ID: ' + session.currentSessionId);
-      }
-    } catch (err) {
-      if (editTimer) { clearTimeout(editTimer); editTimer = null; }
-      session.off('thinking', onThinking);
-      session.off('thinking_done', onThinkingDone);
-      session.off('delta', onDelta);
-      session.off('tool_start', onToolStart);
-      session.off('tool_complete', onToolComplete);
-      session.off('permission_request', onPermission);
-      session.off('result', onResult);
-      await react('😱');
-      await telegram.sendMessage(chatId, '❌ ' + String(err));
-    }
-  }
-
-  async function handleCommand(text: string, chatId: string, messageId: number): Promise<void> {
+  // ── Command handler ──
+  async function handleCommand(text: string, chatId: string, msgId: number): Promise<void> {
     const [cmd, ...args] = text.split(' ');
+    const argStr = args.join(' ');
+
+    // Passthrough prompt commands
+    const pc = PROMPT_COMMANDS[cmd];
+    if (pc) {
+      if (pc.usage && !argStr) { await tg.sendMessage(chatId, 'Usage: ' + pc.usage); return; }
+      const s = sessions.get(chatId);
+      if (!s?.alive) { await getSession(chatId); }
+      return handlePrompt(chatId, msgId, pc.prompt(argStr));
+    }
 
     switch (cmd) {
-      case '/start': {
-        const workDir = args[0] ?? config.workDir;
-        chatWorkDirs.set(chatId, workDir);
-
-        const existing = sessions.get(chatId);
-        if (existing?.alive) existing.kill();
-
-        const session = new Session();
-        try {
-          const cfg = getConfig(chatId); await session.start({ cwd: workDir, binary: copilotBin, model: cfg.model, autopilot: cfg.autopilot, agent: cfg.agent ?? undefined });
-          sessions.set(chatId, session);
-          await telegram.sendMessage(chatId, '✅ Ready in `' + workDir + '`\n\nSend a prompt to get started.');
-        } catch (err) {
-          await telegram.sendMessage(chatId, '❌ Failed to start: ' + String(err));
-        }
+      case '/start': case '/new': {
+        if (args[0] && cmd === '/start') workDirs.set(chatId, args[0]);
+        const old = sessions.get(chatId);
+        if (old?.alive) old.kill();
+        sessions.delete(chatId);
+        const s = await getSession(chatId);
+        await tg.sendMessage(chatId, cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`');
         break;
       }
-
-      case '/stop': {
-        const session = sessions.get(chatId);
-        if (session?.alive) {
-          session.kill();
-          sessions.delete(chatId);
-          await telegram.sendMessage(chatId, '🛑 Session killed.');
-        } else {
-          await telegram.sendMessage(chatId, 'No active session.');
-        }
+      case '/stop': case '/clear': {
+        const s = sessions.get(chatId);
+        if (s?.alive) s.kill();
+        sessions.delete(chatId);
+        await tg.sendMessage(chatId, '🛑 Session cleared.');
         break;
       }
-
-      case '/new': {
-        // Start fresh session (clear conversation history)
-        const session = sessions.get(chatId);
-        if (session?.alive) session.kill();
-
-        const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
-        const newSession = new Session();
-        try {
-          const ncfg = getConfig(chatId); await newSession.start({ cwd: workDir, binary: copilotBin, model: ncfg.model, autopilot: ncfg.autopilot, agent: ncfg.agent ?? undefined });
-          sessions.set(chatId, newSession);
-          await telegram.sendMessage(chatId, '🆕 New session started. Previous conversation cleared.');
-        } catch (err) {
-          await telegram.sendMessage(chatId, '❌ ' + String(err));
-        }
-        break;
-      }
-
       case '/cd': {
-        const dir = args[0];
-        if (!dir) {
-          const current = chatWorkDirs.get(chatId) ?? config.workDir;
-          await telegram.sendMessage(chatId, '📂 ' + current);
-        } else {
-          chatWorkDirs.set(chatId, dir);
-          const existing = sessions.get(chatId);
-          if (existing?.alive) existing.kill();
-          sessions.delete(chatId);
-          await telegram.sendMessage(chatId, '📂 Switched to `' + dir + '`');
-        }
+        if (!args[0]) { await tg.sendMessage(chatId, '📂 ' + workDir(chatId)); break; }
+        workDirs.set(chatId, args[0]);
+        const s = sessions.get(chatId); if (s?.alive) s.kill(); sessions.delete(chatId);
+        await tg.sendMessage(chatId, '📂 Switched to `' + args[0] + '`');
         break;
       }
-
       case '/status': {
-        const session = sessions.get(chatId);
-        const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
-        const lines: string[] = [];
-        if (session?.alive) {
-          lines.push('✅ Active in `' + workDir + '`');
-          if (session.currentSessionId) lines.push('🆔 `' + session.currentSessionId.slice(0, 8) + '...`');
-          
-          // Get real model + mode + agent from SDK
-          try {
-            const [model, mode, agent] = await Promise.all([
-              session.getCurrentModel().catch(() => null),
-              session.getMode().catch(() => null),
-              session.getCurrentAgent().catch(() => null),
-            ]);
-            if (model?.modelId) lines.push('🤖 Model: `' + model.modelId + '`');
-            if (mode) lines.push('⚙️ Mode: `' + mode + '`');
-            if (agent?.agent?.name) lines.push('🎭 Agent: `' + agent.agent.name + '`');
-          } catch {}
-
-          if (session.busy) lines.push('⏳ Processing...');
-
-          // Quota
-          try {
-            const quota = await session.getQuota();
-            const snapshots = (quota as any)?.quotaSnapshots;
-            if (Array.isArray(snapshots) && snapshots.length > 0) {
-              const q = snapshots[0];
-              lines.push('📊 Quota: ' + q.usedRequests + '/' + q.entitlementRequests + ' (' + q.remainingPercentage + '% left)');
-            }
-          } catch {}
-        } else {
-          lines.push('⚪ No active session. Send a message to auto-start.');
-        }
-        await telegram.sendMessage(chatId, lines.join('\n'));
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, '⚪ No session. Send a message to start.'); break; }
+        const lines = ['✅ `' + workDir(chatId) + '`'];
+        try {
+          const [model, mode, agent] = await Promise.all([
+            s.getCurrentModel().catch(() => null), s.getMode().catch(() => null), s.getCurrentAgent().catch(() => null),
+          ]);
+          if ((model as any)?.modelId) lines.push('🤖 `' + (model as any).modelId + '`');
+          if (mode) lines.push('⚙️ `' + mode + '`');
+          if ((agent as any)?.agent?.name) lines.push('🎭 `' + (agent as any).agent.name + '`');
+        } catch {}
+        try {
+          const q = await s.getQuota();
+          const snap = (q as any)?.quotaSnapshots?.[0];
+          if (snap) lines.push('📊 ' + snap.usedRequests + '/' + snap.entitlementRequests + ' (' + snap.remainingPercentage + '% left)');
+        } catch {}
+        await tg.sendMessage(chatId, lines.join('\n'));
         break;
       }
-
-      case '/yes':
-      case '/y': {
-        const session = sessions.get(chatId);
-        if (session?.alive) session.approve();
-        else await telegram.sendMessage(chatId, 'No active session.');
-        break;
-      }
-
-      case '/no':
-      case '/n': {
-        const session = sessions.get(chatId);
-        if (session?.alive) session.deny();
-        else await telegram.sendMessage(chatId, 'No active session.');
-        break;
-      }
-
-      case '/allowall':
-      case '/autopilot': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        const cfg = getConfig(chatId);
-        cfg.autopilot = !cfg.autopilot;
-        session.autopilot = cfg.autopilot;
-        setConfig(chatId, cfg);
-        await telegram.sendMessage(chatId,
-          cfg.autopilot ? '🚀 Autopilot ON — all tools auto-approved' : '🔐 Autopilot OFF — tools require approval');
-        break;
-      }
-
+      case '/yes': case '/y': { sessions.get(chatId)?.approve(); break; }
+      case '/no': case '/n': { sessions.get(chatId)?.deny(); break; }
       case '/abort': {
-        const session = sessions.get(chatId);
-        if (session?.alive) {
-          await session.abort();
-          await telegram.sendMessage(chatId, '🛑 Request aborted.');
-        } else {
-          await telegram.sendMessage(chatId, 'No active session.');
-        }
+        const s = sessions.get(chatId);
+        if (s?.alive) { await s.abort(); await tg.sendMessage(chatId, '🛑 Aborted.'); }
         break;
       }
-
+      case '/autopilot': case '/allowall': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        const c = cfg(chatId); c.autopilot = !c.autopilot; s.autopilot = c.autopilot; setCfg(chatId, c);
+        await tg.sendMessage(chatId, c.autopilot ? '🚀 Autopilot ON' : '🔐 Autopilot OFF');
+        break;
+      }
       case '/agent': {
-        const session = sessions.get(chatId);
-        const agentName = args[0] || null;
-
-        if (!agentName && session?.alive) {
-          // List available agents
+        const s = sessions.get(chatId);
+        if (!args[0] && s?.alive) {
           try {
-            const result = await session.listAgents();
-            const agents = (result as any)?.agents ?? result;
-            if (Array.isArray(agents) && agents.length > 0) {
-              const current = await session.deselectAgent().catch(() => null);
-              const lines = agents.map((a: any) => '• `' + (a.name ?? a) + '`');
-              await telegram.sendMessage(chatId, '🤖 *Available Agents*\n' + lines.join('\n'));
-            } else {
-              await telegram.sendMessage(chatId, '🤖 No custom agents found in this workspace.');
-            }
-          } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
+            const r = await s.listAgents();
+            const agents = (r as any)?.agents ?? r;
+            const lines = Array.isArray(agents) && agents.length
+              ? agents.map((a: any) => '• `' + (a.name ?? a) + '`') : ['No agents found.'];
+            await tg.sendMessage(chatId, '🤖 *Agents*\n' + lines.join('\n'));
+          } catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
           break;
         }
-
-        if (agentName && session?.alive) {
-          try {
-            await session.selectAgent(agentName);
-            await telegram.sendMessage(chatId, '🤖 Switched to agent: `' + agentName + '`');
-          } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        } else if (agentName) {
-          const cfg = getConfig(chatId);
-          cfg.agent = agentName;
-          setConfig(chatId, cfg);
-          await telegram.sendMessage(chatId, '🤖 Agent set to `' + agentName + '`. Will apply on next session.');
-        } else {
-          await telegram.sendMessage(chatId, 'Usage: `/agent [name]` or `/agent` to list');
+        if (args[0] && s?.alive) {
+          try { await s.selectAgent(args[0]); await tg.sendMessage(chatId, '🤖 Agent: `' + args[0] + '`'); }
+          catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
+        } else if (args[0]) {
+          const c = cfg(chatId); c.agent = args[0]; setCfg(chatId, c);
+          await tg.sendMessage(chatId, '🤖 Agent `' + args[0] + '` set for next session.');
         }
         break;
       }
-
-      case '/config': {
-        await sendConfigMenu(chatId);
-        break;
-      }
-
-      // ── Copilot CLI commands (via SDK RPC) ──
-
       case '/plan': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await getSession(chatId); return handleCommand(text, chatId, msgId); }
         try {
-          if (args[0] === 'show' || args[0] === 'read') {
-            const plan = await session.readPlan();
-            if (plan?.exists && plan?.content) {
-              await telegram.sendMessage(chatId, '📋 *Current Plan*\n\n' + plan.content.slice(0, 3800));
-            } else {
-              await telegram.sendMessage(chatId, '📋 No plan exists. Use `/plan <task>` to create one.');
-            }
-          } else if (args[0] === 'delete' || args[0] === 'clear') {
-            await session.deletePlan();
-            await telegram.sendMessage(chatId, '🗑 Plan deleted.');
-          } else if (args.length > 0) {
-            await session.setMode('plan');
-            await telegram.sendMessage(chatId, '📋 Plan mode ON');
-            await handlePrompt(chatId, messageId, args.join(' '));
+          if (args[0] === 'show') {
+            const p = await s.readPlan();
+            await tg.sendMessage(chatId, (p as any)?.content ? '📋 ' + (p as any).content.slice(0, 3800) : '📋 No plan.');
+          } else if (args[0] === 'delete') {
+            await s.deletePlan(); await tg.sendMessage(chatId, '🗑 Plan deleted.');
+          } else if (argStr) {
+            await s.setMode('plan'); await handlePrompt(chatId, msgId, argStr);
           } else {
-            const current = await session.getMode();
-            const next = current === 'plan' ? 'interactive' : 'plan';
-            await session.setMode(next);
-            await telegram.sendMessage(chatId, next === 'plan' ? '📋 Plan mode ON' : '⚡ Interactive mode');
+            const cur = await s.getMode();
+            const next = cur === 'plan' ? 'interactive' : 'plan';
+            await s.setMode(next);
+            await tg.sendMessage(chatId, next === 'plan' ? '📋 Plan mode ON' : '⚡ Interactive');
           }
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
+        } catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
         break;
       }
-
+      case '/fleet': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        try { const r = await s.startFleet(argStr || undefined); await tg.sendMessage(chatId, '🚀 Fleet: ' + JSON.stringify(r)); }
+        catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
+        break;
+      }
+      case '/compact': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        try { const r = await s.compact(); await tg.sendMessage(chatId, '🗜️ ' + (r as any)?.tokensFreed + ' tokens freed'); }
+        catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
+        break;
+      }
+      case '/context': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        const msgs = await s.getMessages();
+        const types: Record<string, number> = {};
+        for (const m of msgs) types[(m as any).type] = (types[(m as any).type] ?? 0) + 1;
+        const lines = ['📊 *Context* (' + msgs.length + ' events)'];
+        for (const [t, n] of Object.entries(types).sort((a, b) => b[1] - a[1]).slice(0, 10)) lines.push('  `' + t + '`: ' + n);
+        await tg.sendMessage(chatId, lines.join('\n'));
+        break;
+      }
+      case '/usage': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        try {
+          const q = await s.getQuota();
+          const snaps = (q as any)?.quotaSnapshots;
+          if (Array.isArray(snaps)) {
+            const lines = snaps.map((s: any) => '• ' + s.usedRequests + '/' + s.entitlementRequests + ' (' + s.remainingPercentage + '% left)');
+            await tg.sendMessage(chatId, '📊 *Usage*\n' + lines.join('\n'));
+          } else await tg.sendMessage(chatId, '📊 ' + JSON.stringify(q).slice(0, 300));
+        } catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
+        break;
+      }
+      case '/tools': {
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
+        try {
+          const r = await s.listTools();
+          const tools = (r as any)?.tools ?? r;
+          if (Array.isArray(tools) && tools.length) {
+            const lines = tools.slice(0, 30).map((t: any) => '• `' + (t.name ?? t) + '`');
+            await tg.sendMessage(chatId, '🔧 *Tools* (' + tools.length + ')\n' + lines.join('\n'));
+          } else await tg.sendMessage(chatId, '🔧 No tools.');
+        } catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
+        break;
+      }
       case '/files': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
+        const s = sessions.get(chatId);
+        if (!s?.alive) { await tg.sendMessage(chatId, 'No session.'); break; }
         try {
           if (args[0] === 'read' && args[1]) {
-            const content = await session.readWorkspaceFile(args[1]);
-            const display = content.length > 3800 ? content.slice(0, 3800) + '\n...(truncated)' : content;
-            await telegram.sendMessage(chatId, '📄 `' + args[1] + '`\n```\n' + display + '\n```');
+            const content = await s.readFile(args[1]);
+            await tg.sendMessage(chatId, '📄 `' + args[1] + '`\n```\n' + content.slice(0, 3800) + '\n```');
           } else {
-            const files = await session.listWorkspaceFiles();
-            if (files.length > 0) {
-              const lines = ['📂 *Workspace Files* (' + files.length + ')'];
-              for (const f of files.slice(0, 40)) {
-                lines.push('• `' + f + '`');
-              }
-              if (files.length > 40) lines.push('... and ' + (files.length - 40) + ' more');
-              await telegram.sendMessage(chatId, lines.join('\n'));
-            } else {
-              await telegram.sendMessage(chatId, '📂 No workspace files.');
-            }
+            const files = await s.listFiles();
+            const lines = files.slice(0, 40).map((f: string) => '• `' + f + '`');
+            await tg.sendMessage(chatId, '📂 ' + files.length + ' files\n' + lines.join('\n'));
           }
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
+        } catch (e) { await tg.sendMessage(chatId, '❌ ' + e); }
         break;
       }
-
-      case '/research': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        if (args.length === 0) { await telegram.sendMessage(chatId, 'Usage: `/research <topic>`'); break; }
-        await handlePrompt(chatId, messageId, 'Research this topic thoroughly using web search and GitHub: ' + args.join(' '));
-        break;
-      }
-
-      case '/compact': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        try {
-          const result = await session.compact();
-          const freed = result?.tokensFreed ?? '?';
-          const removed = result?.messagesRemoved ?? '?';
-          await telegram.sendMessage(chatId, '🗜️ Compacted: ' + freed + ' tokens freed, ' + removed + ' messages removed');
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        break;
-      }
-
-      case '/diff': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Review all uncommitted changes in the current directory. Show a summary of what changed and any issues.');
-        break;
-      }
-
-      case '/review': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Run a thorough code review of the recent changes in this repository. Check for bugs, security issues, and style problems.');
-        break;
-      }
-
-      case '/context': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        try {
-          const messages = await session.getSessionMessages();
-          const types: Record<string, number> = {};
-          for (const m of messages) {
-            types[m.type] = (types[m.type] ?? 0) + 1;
-          }
-          const lines = ['📊 *Context* (' + messages.length + ' events)'];
-          for (const [type, count] of Object.entries(types).sort((a, b) => b[1] - a[1]).slice(0, 10)) {
-            lines.push('  `' + type + '`: ' + count);
-          }
-          await telegram.sendMessage(chatId, lines.join('\n'));
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        break;
-      }
-
-      case '/usage': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        try {
-          const quota = await session.getQuota();
-          const snapshots = (quota as any)?.quotaSnapshots;
-          const lines = ['📊 *Usage*'];
-          if (Array.isArray(snapshots)) {
-            for (const q of snapshots) {
-              lines.push('• ' + (q.usedRequests ?? 0) + '/' + (q.entitlementRequests ?? '∞') + ' requests (' + (q.remainingPercentage ?? '?') + '% left)');
-              if (q.overage) lines.push('  ⚠️ Overage: ' + q.overage);
-            }
-          } else {
-            lines.push(JSON.stringify(quota).slice(0, 300));
-          }
-          await telegram.sendMessage(chatId, lines.join('\n'));
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        break;
-      }
-
-      case '/tools': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        try {
-          const result = await session.listTools();
-          const tools = (result as any)?.tools ?? result;
-          if (Array.isArray(tools) && tools.length > 0) {
-            const lines = ['🔧 *Available Tools* (' + tools.length + ')'];
-            for (const t of tools.slice(0, 30)) {
-              lines.push('• `' + (t.name ?? t) + '`' + (t.description ? ' — ' + t.description.slice(0, 60) : ''));
-            }
-            if (tools.length > 30) lines.push('... and ' + (tools.length - 30) + ' more');
-            await telegram.sendMessage(chatId, lines.join('\n'));
-          } else {
-            await telegram.sendMessage(chatId, '🔧 No tools available');
-          }
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        break;
-      }
-
-      case '/share': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Share this conversation as a markdown summary.');
-        break;
-      }
-
-      case '/init': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Initialize copilot-instructions.md for this repository with sensible defaults based on the codebase.');
-        break;
-      }
-
-      case '/fleet': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        try {
-          const prompt = args.length > 0 ? args.join(' ') : undefined;
-          const result = await session.startFleet(prompt);
-          await telegram.sendMessage(chatId, '🚀 Fleet mode: ' + (result?.activated ? 'activated' : JSON.stringify(result)));
-        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
-        break;
-      }
-
-      case '/tasks': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'List all active background tasks and subagents.');
-        break;
-      }
-
-      case '/resume': {
-        // TODO: implement session switching via client.resumeSession()
-        await telegram.sendMessage(chatId, '🔄 Session resume not yet implemented. Use `/new` to start fresh.');
-        break;
-      }
-
-      case '/instructions': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Show me which custom instruction files are active in this repository.');
-        break;
-      }
-
-      case '/skills': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'List all available skills and their status.');
-        break;
-      }
-
-      case '/mcp': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, 'Show me the configured MCP servers and their status.');
-        break;
-      }
-
-      case '/clear': {
-        // Alias for /new
-        const session = sessions.get(chatId);
-        if (session?.alive) await session.kill();
-        sessions.delete(chatId);
-        await telegram.sendMessage(chatId, '🧹 Session cleared.');
-        break;
-      }
-
-      case '/help':
-      default:
-        await telegram.sendMessage(chatId, [
-          '⚡ *Copilot Remote v0.5*',
-          '',
-          '*Session*',
-          '`/new` — Fresh session',
-          '`/stop` — Kill session',
-          '`/cd [dir]` — Change directory',
-          '`/status` — Model, mode, quota',
-          '',
-          '*Modes*',
-          '`/plan [task|show|delete]` — Plan mode',
-          '`/autopilot` — Toggle autopilot',
-          '`/fleet [task]` — Parallel subagents',
-          '',
-          '*Coding*',
-          '`/diff` — Review changes',
-          '`/review` — Code review',
-          '`/research [topic]` — Deep research',
-          '`/tasks` — Background tasks',
-          '',
-          '*Context*',
-          '`/context` — Event breakdown',
-          '`/usage` — Quota + requests',
-          '`/compact` — Compress context',
-          '`/tools` — Available tools',
-          '`/files [read path]` — Workspace files',
-          '',
-          '*Control*',
-          '`/autopilot` — Toggle auto-approve all tools',
-          '`/yes` `/no` — Approve/deny tool call',
-          '`/abort` — Cancel request',
-          '',
-          '*Customization*',
-          '`/config` — Settings',
-          '`/agent [name]` — Custom agent',
-          '`/init` — Setup instructions',
-          '`/instructions` — View instructions',
-          '`/skills` — Manage skills',
-          '`/mcp` — MCP servers',
-          '`/share` — Export session',
+      case '/resume': { await tg.sendMessage(chatId, '🔄 Not yet implemented. Use `/new`.'); break; }
+      case '/config': { await sendConfigMenu(chatId); break; }
+      case '/help': default: {
+        await tg.sendMessage(chatId, [
+          '⚡ *Copilot Remote*',
+          '', '`/new` `/stop` `/cd` `/status`',
+          '`/plan` `/autopilot` `/fleet`',
+          '`/research` `/diff` `/review`',
+          '`/compact` `/context` `/usage`',
+          '`/tools` `/files` `/agent`',
+          '`/config` `/abort` `/yes` `/no`',
         ].join('\n'));
         break;
+      }
     }
   }
 
-  async function sendConfigMenu(chatId: string, editMsgId?: number): Promise<void> {
-    const cfg = getConfig(chatId);
-    const toggle = (v: boolean) => v ? '✅' : '⬜';
-    const agentLine = cfg.agent ? '\nAgent: `' + cfg.agent + '`' : '';
-    const text = '⚙️ *Settings*\nModel: `' + cfg.model + '`' + agentLine;
+  // ── Config menu ──
+  async function sendConfigMenu(chatId: string, editId?: number) {
+    const c = cfg(chatId);
+    const t = (v: boolean) => v ? '✅' : '⬜';
+    const text = '⚙️ *Settings*\nModel: `' + c.model + '`' + (c.agent ? '\nAgent: `' + c.agent + '`' : '');
     const buttons = [
-      [
-        { text: toggle(cfg.showThinking) + ' Thinking', data: 'cfg:showThinking' },
-        { text: toggle(cfg.showTools) + ' Tools', data: 'cfg:showTools' },
-      ],
-      [
-        { text: toggle(cfg.showUsage) + ' Usage', data: 'cfg:showUsage' },
-        { text: toggle(cfg.showReactions) + ' Reactions', data: 'cfg:showReactions' },
-      ],
-      [
-        { text: toggle(cfg.autopilot) + ' Autopilot', data: 'cfg:autopilot' },
-      ],
+      [{ text: t(c.showThinking) + ' Thinking', data: 'cfg:showThinking' }, { text: t(c.showTools) + ' Tools', data: 'cfg:showTools' }],
+      [{ text: t(c.showUsage) + ' Usage', data: 'cfg:showUsage' }, { text: t(c.showReactions) + ' Reactions', data: 'cfg:showReactions' }],
+      [{ text: t(c.autopilot) + ' Autopilot', data: 'cfg:autopilot' }],
       [{ text: '🤖 Change Model', data: 'cfg:modelPicker' }],
     ];
-
-    if (editMsgId) {
-      await telegram.editMessageButtons(chatId, editMsgId, text, buttons);
-    } else {
-      await telegram.sendMessageWithButtons(chatId, text, buttons);
-    }
+    editId ? await tg.editMessageButtons(chatId, editId, text, buttons) : await tg.sendMessageWithButtons(chatId, text, buttons);
   }
 
-  async function sendModelPicker(chatId: string, editMsgId: number): Promise<void> {
-    const cfg = getConfig(chatId);
-    const session = sessions.get(chatId);
-
-    // Fetch live models from SDK
-    if (cachedModels.length === 0 && session?.alive) {
-      try {
-        const models = await session.listModels();
-        cachedModels = models.map(m => m.id ?? m.name ?? String(m)).filter(Boolean);
-        console.log('[SDK] Loaded ' + cachedModels.length + ' models');
-      } catch (err) {
-        console.error('[SDK] Failed to list models:', err);
-      }
+  async function sendModelPicker(chatId: string, editId: number) {
+    const c = cfg(chatId);
+    const s = sessions.get(chatId);
+    if (!cachedModels.length && s?.alive) {
+      try { cachedModels = (await s.listModels()).map(m => (m as any).id ?? (m as any).name).filter(Boolean); } catch {}
     }
-
-    // Fallback if no models loaded
-    const modelList = cachedModels.length > 0 ? cachedModels : [
-      'claude-sonnet-4', 'claude-sonnet-4.6', 'claude-opus-4.6',
-      'gemini-3-pro-preview', 'gpt-5.2', 'gpt-5.4',
-    ];
-
-    const text = '🤖 *Select Model* (' + modelList.length + ' available)';
+    const models = cachedModels.length ? cachedModels : ['claude-sonnet-4', 'gpt-5.2', 'gemini-3-pro-preview'];
     const buttons: { text: string; data: string }[][] = [];
-    for (let i = 0; i < modelList.length; i += 2) {
-      const row = modelList.slice(i, i + 2).map(m => ({
-        text: (m === cfg.model ? '● ' : '') + m,
-        data: 'model:' + m,
-      }));
-      buttons.push(row);
+    for (let i = 0; i < models.length; i += 2) {
+      buttons.push(models.slice(i, i + 2).map(m => ({ text: (m === c.model ? '● ' : '') + m, data: 'model:' + m })));
     }
     buttons.push([{ text: '← Back', data: 'cfg:back' }]);
-    await telegram.editMessageButtons(chatId, editMsgId, text, buttons);
+    await tg.editMessageButtons(chatId, editId, '🤖 *Select Model*', buttons);
   }
 
-  // Reaction-based permission approval
-  telegram.setReactionHandler(async (emoji: string, chatId: string, msgId: number) => {
-    if (!pendingPermissions.has(msgId)) return;
-    const session = sessions.get(chatId);
-    if (!session?.alive) return;
-
-    if (emoji === '👍' || emoji === '✅') {
-      session.approve();
-      pendingPermissions.delete(msgId);
-      await telegram.editMessageButtons(chatId, msgId, '✅ Approved', []);
-    } else if (emoji === '👎' || emoji === '❌') {
-      session.deny();
-      pendingPermissions.delete(msgId);
-      await telegram.editMessageButtons(chatId, msgId, '❌ Denied', []);
-    }
+  // ── Callbacks ──
+  tg.setReactionHandler(async (emoji, chatId, msgId) => {
+    if (!pendingPerms.has(msgId)) return;
+    const s = sessions.get(chatId);
+    if (!s?.alive) return;
+    if (emoji === '👍' || emoji === '✅') { s.approve(); pendingPerms.delete(msgId); await tg.editMessageButtons(chatId, msgId, '✅ Approved', []); }
+    else if (emoji === '👎' || emoji === '❌') { s.deny(); pendingPerms.delete(msgId); await tg.editMessageButtons(chatId, msgId, '❌ Denied', []); }
   });
 
-  telegram.setCallbackHandler(async (callbackId: string, data: string, chatId: string, msgId: number) => {
-    // Permission approval/denial
-    if (data === 'perm:yes' || data === 'perm:no' || data === 'perm:all') {
-      const session = sessions.get(chatId);
-      if (!session?.alive) return;
-      
+  tg.setCallbackHandler(async (_, data, chatId, msgId) => {
+    if (data.startsWith('perm:')) {
+      const s = sessions.get(chatId);
+      if (!s?.alive) return;
       if (data === 'perm:all') {
-        session.autopilot = true;
-        const cfg = getConfig(chatId);
-        cfg.autopilot = true;
-        setConfig(chatId, cfg);
-        
-        // Approve this one
-        session.approve();
-        
-        // Clear ALL pending permission messages for this chat
-        const toDelete: number[] = [];
-        for (const [pmsgId, pchatId] of pendingPermissions) {
-          if (pchatId === chatId) {
-            toDelete.push(pmsgId);
-            // Each pending permission is waiting on a 'permission_response' event
-            session.approve();
-          }
-        }
-        for (const pmsgId of toDelete) {
-          pendingPermissions.delete(pmsgId);
-          if (pmsgId !== msgId) {
-            await telegram.editMessageButtons(chatId, pmsgId, '🚀 Auto-approved', []).catch(() => {});
-          }
-        }
-        
-        await telegram.editMessageButtons(chatId, msgId, '🚀 Autopilot enabled — all approved', []);
+        s.autopilot = true;
+        const c = cfg(chatId); c.autopilot = true; setCfg(chatId, c);
+        s.approve();
+        for (const [id, cid] of pendingPerms) { if (cid === chatId) { s.approve(); pendingPerms.delete(id); if (id !== msgId) tg.editMessageButtons(chatId, id, '🚀', []).catch(() => {}); } }
+        await tg.editMessageButtons(chatId, msgId, '🚀 Autopilot ON', []);
       } else {
-        const approved = data === 'perm:yes';
-        if (approved) session.approve(); else session.deny();
-        pendingPermissions.delete(msgId);
-        await telegram.editMessageButtons(chatId, msgId, 
-          approved ? '✅ Approved' : '❌ Denied', []);
+        const ok = data === 'perm:yes';
+        ok ? s.approve() : s.deny();
+        pendingPerms.delete(msgId);
+        await tg.editMessageButtons(chatId, msgId, ok ? '✅' : '❌', []);
       }
       return;
     }
-
-    if (data === 'cfg:modelPicker') {
-      await sendModelPicker(chatId, msgId);
-      return;
-    }
-
-    if (data === 'cfg:back') {
-      await sendConfigMenu(chatId, msgId);
-      return;
-    }
-
+    if (data === 'cfg:modelPicker') return sendModelPicker(chatId, msgId);
+    if (data === 'cfg:back') return sendConfigMenu(chatId, msgId);
     if (data.startsWith('model:')) {
-      const model = data.slice(6);
-      const cfg = getConfig(chatId);
-      cfg.model = model;
-      setConfig(chatId, cfg);
-      // Use SDK's setModel for runtime switch
-      const session = sessions.get(chatId);
-      if (session?.alive) {
-        try { await session.setModel(model); } catch {}
-      }
-      await sendConfigMenu(chatId, msgId);
-      return;
+      const c = cfg(chatId); c.model = data.slice(6); setCfg(chatId, c);
+      const s = sessions.get(chatId); if (s?.alive) try { await s.setModel(c.model); } catch {}
+      return sendConfigMenu(chatId, msgId);
     }
-
     if (data.startsWith('cfg:')) {
       const key = data.slice(4) as keyof ChatConfig;
-      const cfg = getConfig(chatId);
-      if (key in cfg && typeof (cfg as any)[key] === 'boolean') {
-        (cfg as any)[key] = !(cfg as any)[key];
-        setConfig(chatId, cfg);
-
-        // Sync autopilot to active session
-        if (key === 'autopilot') {
-          const session = sessions.get(chatId);
-          if (session?.alive) session.autopilot = cfg.autopilot;
-        }
-
-        await sendConfigMenu(chatId, msgId);
+      const c = cfg(chatId);
+      if (key in c && typeof (c as any)[key] === 'boolean') {
+        (c as any)[key] = !(c as any)[key]; setCfg(chatId, c);
+        if (key === 'autopilot') { const s = sessions.get(chatId); if (s?.alive) s.autopilot = c.autopilot; }
+        return sendConfigMenu(chatId, msgId);
       }
     }
   });
 
-  process.on('SIGINT', () => {
-    console.log('\nShutting down...');
-    telegram.stopPolling();
-    for (const [, session] of sessions) session.kill();
-    process.exit(0);
-  });
+  // ── Shutdown ──
+  const shutdown = () => { tg.stopPolling(); for (const [, s] of sessions) s.kill(); process.exit(0); };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
-  process.on('SIGTERM', () => {
-    telegram.stopPolling();
-    for (const [, session] of sessions) session.kill();
-    process.exit(0);
-  });
-
-  await telegram.startPolling();
+  await tg.startPolling();
 }
 
-main().catch((err) => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+main().catch(e => { console.error('Fatal:', e); process.exit(1); });
