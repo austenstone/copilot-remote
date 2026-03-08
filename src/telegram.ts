@@ -210,6 +210,7 @@ export class TelegramClient implements Client {
         { command: 'new', description: 'Start fresh session' },
         { command: 'config', description: 'Settings & preferences' },
         { command: 'status', description: 'Session info & quota' },
+        { command: 'sessions', description: 'List & resume sessions' },
         { command: 'agent', description: 'Switch agent' },
         { command: 'tools', description: 'Manage tools' },
         { command: 'usage', description: 'Usage & token stats' },

@@ -875,6 +875,37 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case '/sessions': {
+        const all = sessionStore.list();
+        if (!all.length) {
+          await client.sendMessage(chatId, '📋 No sessions yet.');
+          break;
+        }
+        const now = Date.now();
+        const ago = (ts: number) => {
+          const m = Math.floor((now - ts) / 60000);
+          if (m < 1) return 'just now';
+          if (m < 60) return m + 'm ago';
+          const h = Math.floor(m / 60);
+          if (h < 24) return h + 'h ago';
+          return Math.floor(h / 24) + 'd ago';
+        };
+        const current = sessions.get(chatId)?.sessionId;
+        const lines: string[] = [];
+        const buttons: Button[][] = [];
+        for (const [key, entry] of all.slice(0, 10)) {
+          const isCurrent = entry.sessionId === current;
+          const label = (isCurrent ? '▶️ ' : '') + entry.model + ' · ' + ago(entry.lastUsed);
+          lines.push((isCurrent ? '▶️' : '⏸') + ' `' + entry.sessionId.slice(0, 8) + '` ' + entry.model + ' · ' + ago(entry.lastUsed) + ' · `' + entry.cwd + '`');
+          buttons.push([{
+            text: label,
+            data: '@' + chatId + '|session:' + entry.sessionId,
+            ...(isCurrent ? { style: 'success' } : {}),
+          }]);
+        }
+        await client.sendButtons(chatId, '📋 *Sessions*\n' + lines.join('\n') + '\n\nTap to resume:', buttons);
+        break;
+      }
       case '/status': {
         const s = sessions.get(chatId);
         if (!s?.alive) {
@@ -1679,6 +1710,35 @@ async function main(): Promise<void> {
       return;
     }
     // Agent selection from /agent button menu
+    // Session resume from /sessions menu
+    if (data.startsWith('session:')) {
+      const sessionId = data.slice(8);
+      const entry = sessionStore.list().find(([, e]) => e.sessionId === sessionId);
+      if (!entry) {
+        await client.editButtons(chatId, msgId, '❌ Session not found.', []);
+        return;
+      }
+      // Kill current session if any
+      const old = sessions.get(chatId);
+      if (old?.alive) await old.disconnect();
+      sessions.delete(chatId);
+      // Resume the selected session
+      try {
+        const c = cfg(chatId);
+        const s = new Session();
+        await s.resume(sessionId, {
+          cwd: entry[1].cwd,
+          model: entry[1].model || c.model,
+          reasoningEffort: c.reasoningEffort as any,
+        });
+        sessions.set(chatId, s);
+        registerSessionListeners(s, chatId);
+        await client.editButtons(chatId, msgId, '✅ Resumed session `' + sessionId.slice(0, 8) + '`', []);
+      } catch (e) {
+        await client.editButtons(chatId, msgId, '❌ ' + e, []);
+      }
+      return;
+    }
     if (data.startsWith('agent:')) {
       const agentName = data.slice(6);
       const s = sessions.get(chatId);
