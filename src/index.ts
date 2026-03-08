@@ -521,14 +521,16 @@ async function main(): Promise<void> {
       schedEdit(); // thinking shows inline in the main streaming message
     };
     const onDelta = (t: string) => {
-      // Thinking→response transition: clear thinking, bump generation for fresh message
+      // Thinking→response transition: delete thinking message immediately, don't wait for minInitialChars
       if (thinkingText) {
         if (streamMsgId) {
-          staleMessageIds.push(streamMsgId);
+          // Delete the thinking message right now (don't just track as stale)
+          client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
           streamMsgId = null;
           streamGeneration++;
         }
         thinkingText = '';
+        react(LIFECYCLE_REACTIONS.writing);
       }
       if (!responseText) react(LIFECYCLE_REACTIONS.writing);
       responseText += t;
