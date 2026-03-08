@@ -28,8 +28,10 @@ export class CopilotSession extends EventEmitter {
     /❯\s*$/,
     /copilot>\s*$/,
     /\?\s*\(y\/n\)\s*$/i,
-    /\?\s*$/,
-    />\s*$/,
+    /Unlimited reqs\.\s*$/,
+    /switch mode\s.*reqs\.\s*$/,
+    /Type @ to mention files/,
+    /for commands, or \? for shortcuts/,
   ];
 
   private static STREAMING_PATTERNS = [
@@ -95,7 +97,7 @@ export class CopilotSession extends EventEmitter {
       this.emit('exit', exitCode);
     });
 
-    await this.waitForPrompt(30_000);
+    await this.waitForPrompt(60_000);
   }
 
   send(text: string): void {
