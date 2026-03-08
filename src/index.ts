@@ -1,25 +1,14 @@
 // Copilot Remote — Telegram ↔ Copilot SDK bridge
 import { Session } from './session.js';
 import type {
-  QuotaSnapshot,
-  QuotaResponse,
-  AgentInfo,
-  AgentListResponse,
-  CurrentAgentResponse,
-  CurrentModelResponse,
-  CompactResponse,
-  PlanResponse,
   ToolInfo,
-  ToolsListResponse,
-  SessionMessage,
   FileAttachment,
 } from './session.js';
 import type { Client, MessageOptions, Button } from './client.js';
 import type { ModelInfo, PermissionRequest } from '@github/copilot-sdk';
 import { TelegramClient } from './telegram.js';
 import { SessionStore } from './store.js';
-import { ConfigStore, type ChatConfig, type PermKind, type GlobalConfig } from './config-store.js';
-import { markdownToTelegramHtml } from './format/telegram.js';
+import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { log } from './log.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -46,10 +35,8 @@ interface UserInputRequest {
 }
 
 /** ChatConfig boolean keys for dynamic toggle */
-type ChatConfigBooleanKey = 'showUsage' | 'showThinking' | 'showTools' | 'showReactions' | 'autopilot';
 
 /** Reasoning effort level (including 'none' for disabled) */
-type ReasoningEffortLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 function findBin(name: string): string {
   try {
@@ -394,8 +381,6 @@ async function main(): Promise<void> {
     let thinkingText = '',
       responseText = '';
     let intentText = '';
-    let contextInfo = '';
-    let turnCount = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let lastUsage: any = null;
     const toolLines: string[] = [];
@@ -552,8 +537,6 @@ async function main(): Promise<void> {
     session.on('permission_request', onPerm);
     session.on('user_input_request', onUserInput);
     session.on('context_info', (info: { tokenLimit: number; currentTokens: number; messagesLength: number }) => {
-      const pct = Math.round((info.currentTokens / info.tokenLimit) * 100);
-      contextInfo = `📊 ${pct}% context · ${info.messagesLength} msgs`;
       contextInfoMap.set(chatId, info);
     });
     session.on('usage', (u: Record<string, unknown>) => {
@@ -566,9 +549,8 @@ async function main(): Promise<void> {
       };
       lastUsageMap.set(chatId, lastUsage);
     });
-    session.on('turn_start', (t: { turnId: string }) => {
-      const n = parseInt(t.turnId, 10);
-      if (n > 0) { turnCount = n; schedEdit(); }
+    session.on('turn_start', () => {
+      schedEdit();
     });
     session.on('permission_timeout', () => {
       // Clean up expired permission prompts for this chat
@@ -1147,7 +1129,6 @@ async function main(): Promise<void> {
   // ── Config menu ──
   async function sendConfigMenu(chatId: string, editId?: number) {
     const c = cfg(chatId);
-    const s = sessions.get(chatId);
     // Prefix callback data with session key so callbacks in topics resolve correctly
     // Telegram doesn't include message_thread_id in callback_query.message
     const pfx = (d: string) => `@${chatId}|${d}`;
@@ -1308,10 +1289,7 @@ async function main(): Promise<void> {
     });
     const buttons = [
       [toggle(c.showThinking, 'Thinking', pfx('dsp:showThinking')), toggle(c.showTools, 'Tools', pfx('dsp:showTools'))],
-      [
-        toggle(c.showUsage, 'Usage', pfx('dsp:showUsage')),
-        toggle(c.showReactions, 'Reactions', pfx('dsp:showReactions')),
-      ],
+      [toggle(c.showReactions, 'Reactions', pfx('dsp:showReactions'))],
       [toggle(c.infiniteSessions !== false, 'Infinite Sessions', pfx('dsp:infiniteSessions'))],
       [{ text: '← Back', data: pfx('cfg:back') }],
     ];
