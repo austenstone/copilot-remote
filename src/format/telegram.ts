@@ -141,12 +141,10 @@ export function wrapFileReferencesInHtml(html: string): string {
 // --- Public API ---
 
 /**
- * Convert markdown pipe tables to bullet lists (Telegram doesn't support tables).
- * | Header1 | Header2 |    →    **Row1Col1**
- * |---------|---------|         Header2: Row1Col2
- * | Val1    | Val2    |
+ * Convert markdown pipe tables to monospace code blocks (Telegram doesn't support HTML tables).
+ * Preserves table structure with aligned columns inside <pre> tags.
  */
-function tablesToBullets(md: string): string {
+function tablesToCode(md: string): string {
   const lines = md.split('\n');
   const result: string[] = [];
   let i = 0;
@@ -156,29 +154,37 @@ function tablesToBullets(md: string): string {
     if (line.startsWith('|') && line.endsWith('|') && i + 1 < lines.length) {
       const nextLine = lines[i + 1]?.trim() ?? '';
       if (/^\|[\s:-]+\|/.test(nextLine)) {
-        // Parse header
-        const headers = line.split('|').filter(c => c.trim()).map(c => c.trim());
+        // Collect all table rows (header + data)
+        const tableRows: string[][] = [];
+        // Header
+        tableRows.push(line.split('|').filter(c => c.trim()).map(c => c.trim()));
         i += 2; // skip header + separator
-        // Parse rows
+        // Data rows
         while (i < lines.length && lines[i].trim().startsWith('|')) {
-          const cells = lines[i].trim().split('|').filter(c => c.trim()).map(c => c.trim());
-          if (cells.length > 0) {
-            // First column as bold label, rest as key:value
-            const label = cells[0];
-            if (cells.length === 1) {
-              result.push(`• **${label}**`);
-            } else if (cells.length === 2) {
-              result.push(`• **${label}** — ${cells[1]}`);
-            } else {
-              result.push(`• **${label}**`);
-              for (let j = 1; j < cells.length; j++) {
-                if (cells[j]) result.push(`  ${headers[j] ?? ''}: ${cells[j]}`);
-              }
-            }
-          }
+          tableRows.push(lines[i].trim().split('|').filter(c => c.trim()).map(c => c.trim()));
           i++;
         }
-        result.push(''); // blank line after table
+        // Calculate column widths
+        const colCount = Math.max(...tableRows.map(r => r.length));
+        const widths = Array.from({ length: colCount }, () => 0);
+        for (const row of tableRows) {
+          for (let j = 0; j < colCount; j++) {
+            widths[j] = Math.max(widths[j], (row[j] ?? '').length);
+          }
+        }
+        // Render aligned table
+        const renderRow = (cells: string[]) =>
+          cells.map((c, j) => (c ?? '').padEnd(widths[j])).join('  ');
+        // Header
+        result.push('```');
+        result.push(renderRow(tableRows[0]));
+        result.push(widths.map(w => '─'.repeat(w)).join('──'));
+        // Data rows
+        for (let r = 1; r < tableRows.length; r++) {
+          result.push(renderRow(tableRows[r]));
+        }
+        result.push('```');
+        result.push('');
         continue;
       }
     }
@@ -189,7 +195,7 @@ function tablesToBullets(md: string): string {
 }
 
 export function markdownToTelegramHtml(markdown: string, options: { wrapFileRefs?: boolean } = {}): string {
-  const processed = tablesToBullets(markdown ?? '');
+  const processed = tablesToCode(markdown ?? '');
   const ir = markdownToIR(processed, {
     linkify: true,
     enableSpoilers: true,
