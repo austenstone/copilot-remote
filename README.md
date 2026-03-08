@@ -5,10 +5,12 @@ Control [GitHub Copilot CLI](https://github.com/github/copilot-cli) from Telegra
 ## Quick Start
 
 ```bash
+# One-liner install (clones, builds, sets up as service)
+curl -fsSL https://raw.githubusercontent.com/tag-assistant/copilot-remote/main/install.sh | bash
+
+# Or run directly with npx
 npx copilot-remote --token <telegram-bot-token> --github-token <github-pat>
 ```
-
-That's it. Open the bot in Telegram and start chatting.
 
 ## Prerequisites
 
