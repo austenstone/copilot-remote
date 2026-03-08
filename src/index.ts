@@ -9,6 +9,15 @@ import { CopilotSession } from './session.js';
 import { TelegramBridge } from './telegram.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
+
+function findBinary(name: string): string {
+  try {
+    return execSync('which ' + name, { encoding: 'utf-8' }).trim();
+  } catch {
+    return name; // fall back to bare name
+  }
+}
 
 interface Config {
   botToken: string;
@@ -133,9 +142,13 @@ async function main(): Promise<void> {
         });
 
         try {
+          // Resolve copilot binary path
+          const copilotBin = config.copilotBinary ?? findBinary('copilot');
+          console.log('[Session] Using binary:', copilotBin);
+
           await session.start({
             cwd: workDir,
-            shell: config.copilotBinary ?? 'copilot',
+            shell: copilotBin,
           });
           await telegram.sendMessage(chatId, '✅ Copilot session ready. Send a prompt to get started.');
         } catch (err) {
