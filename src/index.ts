@@ -415,9 +415,13 @@ async function main(): Promise<void> {
       return p.join('\n\n');
     };
 
+    let flushing = false;
     const flush = async () => {
+      if (flushing) return;
+      flushing = true;
       timer = null;
       lastEdit = Date.now();
+      try {
       const text = display();
       if (!text.trim()) return;
 
@@ -439,6 +443,7 @@ async function main(): Promise<void> {
         await client.editMessage(chatId, streamMsgId, text);
         client.sendTyping(chatId); // re-send typing after edit (edit cancels it)
       }
+      } finally { flushing = false; }
     };
 
     const schedEdit = () => {

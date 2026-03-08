@@ -310,10 +310,10 @@ export class TelegramClient implements Client {
 
   // ── Draft streaming ──
 
-  private draftSupported: boolean | null = null;
+  private draftDisabledChats = new Set<string>();
 
   async sendDraft(chatId: string, draftId: number, text: string, threadId?: number): Promise<boolean> {
-    if (this.draftSupported === false) return false;
+    if (this.draftDisabledChats.has(chatId)) return false;
     try {
       const params: Record<string, unknown> = {
         chat_id: chatId,
@@ -329,14 +329,12 @@ export class TelegramClient implements Client {
       );
       const json = (await resp.json()) as { ok?: boolean; description?: string };
       if (!json.ok) throw new Error(json.description ?? 'sendMessageDraft failed');
-      if (!this.draftSupported) log.info('Draft streaming enabled ✓');
-      this.draftSupported = true;
       return true;
     } catch (e) {
       const msg = String(e);
       log.debug('sendMessageDraft failed:', msg);
       if (/unknown method|not (found|available|supported)|can't be used|can be used only|PEER_INVALID/i.test(msg)) {
-        this.draftSupported = false;
+        this.draftDisabledChats.add(chatId); // disable for THIS chat only
       }
       return false;
     }
