@@ -408,7 +408,9 @@ async function main(): Promise<void> {
       if (!streamMsgId) {
         if (text.length < 15) return;
         streamMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+        log.debug('Stream: new message', streamMsgId);
       } else {
+        log.debug('Stream: edit message', streamMsgId);
         await client.editMessage(chatId, streamMsgId, text);
       }
     };

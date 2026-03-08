@@ -290,7 +290,7 @@ export class TelegramClient implements Client {
     } catch (e) {
       const msg = String(e);
       log.debug('sendMessageDraft failed:', msg);
-      if (/unknown method|not (found|available|supported)|can't be used|can be used only/i.test(msg)) {
+      if (/unknown method|not (found|available|supported)|can't be used|can be used only|PEER_INVALID/i.test(msg)) {
         this.draftSupported = false;
       }
       return false;
