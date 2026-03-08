@@ -19,6 +19,7 @@ type MyContext = HydrateFlavor<FileFlavor<Context>>;
 export interface TelegramConfig {
   botToken: string;
   allowedUsers: string[];
+  profilePhoto?: string;
 }
 
 export class TelegramClient implements Client {
@@ -191,6 +192,10 @@ export class TelegramClient implements Client {
       },
     });
 
+    // Set profile photo if configured
+    const photoPath = this.config.profilePhoto;
+    if (photoPath) this.setMyProfilePhoto(photoPath).catch(() => {});
+
     await this.runner.task();
   }
 
@@ -273,10 +278,12 @@ export class TelegramClient implements Client {
       };
       if (threadId) params.message_thread_id = threadId;
       await (this.bot.api.raw as Record<string, Function>).sendMessageDraft(params);
+      if (!this.draftSupported) log.info('Draft streaming enabled ✓');
       this.draftSupported = true;
       return true;
     } catch (e) {
       const msg = String(e);
+      log.debug('sendMessageDraft failed:', msg);
       if (/unknown method|not (found|available|supported)|can't be used|can be used only/i.test(msg)) {
         this.draftSupported = false;
       }
@@ -363,26 +370,33 @@ export class TelegramClient implements Client {
 
   // ── Bot profile ──
 
-  async setMyProfilePhoto(photoUrl: string): Promise<void> {
+  async setMyProfilePhoto(pathOrUrl: string): Promise<void> {
     try {
-      const res = await fetch(photoUrl);
-      const buffer = Buffer.from(await res.arrayBuffer());
+      let buffer: Buffer;
+      if (pathOrUrl.startsWith('http')) {
+        const res = await fetch(pathOrUrl);
+        buffer = Buffer.from(await res.arrayBuffer());
+      } else {
+        const fs = await import('fs');
+        buffer = fs.readFileSync(pathOrUrl);
+      }
       const boundary = '----CopilotRemote' + Date.now();
       const body =
         '--' +
         boundary +
         '\r\n' +
-        'Content-Disposition: form-data; name="photo"; filename="avatar.png"\r\n' +
-        'Content-Type: image/png\r\n\r\n';
+        'Content-Disposition: form-data; name="photo"; filename="avatar.jpg"\r\n' +
+        'Content-Type: image/jpeg\r\n\r\n';
       const end = '\r\n--' + boundary + '--\r\n';
       const payload = Buffer.concat([Buffer.from(body), buffer, Buffer.from(end)]);
-      await fetch('https://api.telegram.org/bot' + this.config.botToken + '/setMyProfilePhoto', {
+      const resp = await fetch('https://api.telegram.org/bot' + this.config.botToken + '/setMyProfilePhoto', {
         method: 'POST',
         headers: { 'Content-Type': 'multipart/form-data; boundary=' + boundary },
         body: payload,
       });
-    } catch {
-      /* ignore */
+      if (!resp.ok) log.debug('setMyProfilePhoto failed:', await resp.text());
+    } catch (e) {
+      log.debug('setMyProfilePhoto error:', e);
     }
   }
 

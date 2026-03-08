@@ -74,6 +74,7 @@ function loadConfig() {
     workDir: file.workDir ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
     copilotBinary: file.copilotBinary ?? process.env.COPILOT_REMOTE_BINARY,
     githubToken: file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken(),
+    profilePhoto: file.profilePhoto,
     _cfgPath: cfgPath ?? homeCfg,
     _file: file,
   };
@@ -186,7 +187,7 @@ async function main(): Promise<void> {
 
   log.info('⚡ Copilot Remote v' + version + ' | dir: ' + config.workDir);
 
-  const client: Client = new TelegramClient({ botToken, allowedUsers: config.allowedUsers });
+  const client: Client = new TelegramClient({ botToken, allowedUsers: config.allowedUsers, profilePhoto: config.profilePhoto });
 
   // ── Per-chat state ──
   // ── Config ──
