@@ -488,9 +488,9 @@ async function main(): Promise<void> {
       const p: string[] = [];
       if (intentText) p.push('🎯 *' + intentText + '*');
       if (thinkingText && c.showThinking) {
-        p.push('💭 ' + thinkingText);
+        p.push('_' + thinkingText + '_');
       } else if (completedThinkingText && c.showThinking) {
-        p.push('💭 ' + completedThinkingText);
+        p.push('_' + completedThinkingText + '_');
       }
       if (toolLines.length) p.push(toolLines.join('\n'));
       if (activeToolStatus && !responseText) p.push('⏳ ' + activeToolStatus);
