@@ -940,21 +940,27 @@ async function main(): Promise<void> {
 
   async function sendModelPicker(chatId: string, editId: number) {
     const c = cfg(chatId);
-    const s = sessions.get(chatId);
-    if (!cachedModels.length && s?.alive) {
+    // Ensure we have models cached - create session if needed
+    if (!cachedModels.length) {
       try {
+        let s = sessions.get(chatId);
+        if (!s?.alive) s = await getSession(chatId);
         cachedModels = (await s.listModels()) as any[];
+        log.info(
+          'Models:',
+          cachedModels.map((m: any) => m.id ?? m.name ?? m),
+        );
       } catch {
         /* ignore */
       }
     }
     const modelIds = cachedModels.length
-      ? cachedModels.map((m) => m.id ?? m.name).filter(Boolean)
+      ? cachedModels.map((m: any) => m.id ?? m.name ?? m).filter(Boolean)
       : ['claude-sonnet-4', 'gpt-5.2', 'gemini-3-pro-preview'];
     const buttons: { text: string; data: string }[][] = [];
     for (let i = 0; i < modelIds.length; i += 2) {
       buttons.push(
-        modelIds.slice(i, i + 2).map((m) => ({ text: (m === c.model ? '● ' : '') + m, data: 'model:' + m })),
+        modelIds.slice(i, i + 2).map((m: string) => ({ text: (m === c.model ? '● ' : '') + m, data: 'model:' + m })),
       );
     }
     buttons.push([{ text: '← Back', data: 'cfg:back' }]);
