@@ -401,6 +401,8 @@ async function main(): Promise<void> {
     };
 
     let streamGeneration = 0;
+    const staleMessageIds: number[] = []; // messages sent by old generations to clean up
+
     const flush = async () => {
       const gen = streamGeneration;
       timer = null;
@@ -420,13 +422,16 @@ async function main(): Promise<void> {
       if (!streamMsgId) {
         if (text.length < 15) return;
         const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
-        if (gen !== streamGeneration) return; // stale, drop silently
+        if (gen !== streamGeneration) {
+          // Stale — this message was sent but generation moved on. Track for cleanup.
+          if (newMsgId) staleMessageIds.push(newMsgId);
+          return;
+        }
         streamMsgId = newMsgId;
         log.debug('Stream: new message', streamMsgId);
       } else {
         log.debug('Stream: edit message', streamMsgId);
         await client.editMessage(chatId, streamMsgId, text);
-        if (gen !== streamGeneration) return; // stale, drop silently
         client.sendTyping(chatId); // re-send typing after edit (edit cancels it)
       }
     };
@@ -616,6 +621,10 @@ async function main(): Promise<void> {
       let final = res.content;
 
       // Finalize: send the complete response
+      // Clean up any stale messages from old generations
+      for (const id of staleMessageIds) {
+        client.deleteMessage?.(chatId, id).catch(() => {});
+      }
       // Always clean up streaming message if we're sending a new one
       if (draftId && useDraft) {
         // Draft mode: draft auto-disappears, send real message
