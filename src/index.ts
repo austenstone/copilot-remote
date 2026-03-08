@@ -887,7 +887,7 @@ async function main(): Promise<void> {
         // Session ID + resume command
         if (s.sessionId) {
           lines.push('🆔 `' + s.sessionId + '`');
-          lines.push('`copilot --resume ' + s.sessionId + '`');
+          lines.push('```\ncopilot --resume ' + s.sessionId + '\n```');
         }
 
         // Git branch
