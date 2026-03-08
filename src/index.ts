@@ -369,7 +369,8 @@ async function main(): Promise<void> {
     let intentText = '';
     let contextInfo = '';
     let turnCount = 0;
-    let lastUsage: { model?: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; duration?: number } | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let lastUsage: any = null;
     const toolLines: string[] = [];
     let lastEdit = 0,
       timer: NodeJS.Timeout | null = null;
