@@ -402,6 +402,8 @@ async function main(): Promise<void> {
     let session: Session;
     try {
       session = await getSession(chatId);
+      // Track first user message as session summary
+      sessionStore.touch(chatId, prompt);
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       // If reasoning effort not supported, retry without it
@@ -895,8 +897,8 @@ async function main(): Promise<void> {
         const buttons: Button[][] = [];
         for (const [key, entry] of all.slice(0, 10)) {
           const isCurrent = entry.sessionId === current;
-          const label = (isCurrent ? '▶️ ' : '') + entry.model + ' · ' + ago(entry.lastUsed);
-          lines.push((isCurrent ? '▶️' : '⏸') + ' `' + entry.sessionId.slice(0, 8) + '` ' + entry.model + ' · ' + ago(entry.lastUsed) + ' · `' + entry.cwd + '`');
+          const label = (isCurrent ? '▶️ ' : '') + (entry.summary ?? entry.model) + ' · ' + ago(entry.lastUsed);
+          lines.push((isCurrent ? '▶️' : '⏸') + ' ' + (entry.summary ? '**' + entry.summary + '**' : entry.model) + ' · ' + ago(entry.lastUsed) + ' · `' + entry.cwd + '`');
           buttons.push([{
             text: label,
             data: '@' + chatId + '|session:' + entry.sessionId,

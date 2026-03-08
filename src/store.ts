@@ -7,6 +7,7 @@ export interface SessionEntry {
   sessionId: string;
   cwd: string;
   model: string;
+  summary?: string;
   createdAt: number;
   lastUsed: number;
 }
@@ -29,9 +30,12 @@ export class SessionStore {
     this.save();
   }
 
-  touch(chatId: string): void {
+  touch(chatId: string, summary?: string): void {
     if (this.data[chatId]) {
       this.data[chatId].lastUsed = Date.now();
+      if (summary && !this.data[chatId].summary) {
+        this.data[chatId].summary = summary.slice(0, 80);
+      }
       this.save();
     }
   }
