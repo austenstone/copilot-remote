@@ -526,6 +526,8 @@ async function main(): Promise<void> {
     // Pattern adapted from OpenClaw's DRAFT_MIN_INITIAL_CHARS (MIT, github.com/AustenStone/openclaw)
     const MIN_INITIAL_CHARS = 1;
 
+    let sendingFirst = false; // mutex: prevent duplicate first-message sends
+
     const flush = async () => {
       const gen = streamGeneration;
       timer = null;
@@ -543,12 +545,12 @@ async function main(): Promise<void> {
 
       // Fallback: send then edit
       if (!streamMsgId) {
-        // Debounce first send — wait for enough content for a meaningful push notification
-        // (OpenClaw pattern: minInitialChars gate on first message send)
+        if (sendingFirst) return; // another flush is already sending the first message
         if (text.length < MIN_INITIAL_CHARS) return;
+        sendingFirst = true;
         const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+        sendingFirst = false;
         if (gen !== streamGeneration) {
-          // Stale — generation advanced while send was in-flight. Track for cleanup at finalize.
           if (newMsgId) staleMessageIds.push(newMsgId);
           return;
         }
