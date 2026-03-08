@@ -321,6 +321,15 @@ export class Session extends EventEmitter {
     });
   }
 
+  /** Send with mode: 'immediate' to steer the agent mid-turn (bypasses queue) */
+  async sendImmediate(prompt: string, attachments?: FileAttachment[]): Promise<void> {
+    if (!this._alive) throw new Error('Session not started');
+    const opts: MessageOptions = { prompt, mode: 'immediate' };
+    if (attachments?.length) opts.attachments = attachments;
+    // Fire-and-forget: immediate messages steer the current turn, no separate response
+    await this.session!.send(opts);
+  }
+
   private async processQueue(): Promise<void> {
     if (this.processing || !this.queue.length) return;
     this.processing = true;

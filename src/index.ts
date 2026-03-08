@@ -360,6 +360,19 @@ async function main(): Promise<void> {
       }
     }
     const c = cfg(chatId);
+    // Steering: if session is busy (mid-turn), send as immediate to steer the agent
+    if (session.busy && c.messageMode !== 'enqueue') {
+      const react = c.showReactions ? (e: string) => client.setReaction(chatId, msgId, e) : async () => {};
+      await react('⚡');
+      try {
+        await session.sendImmediate(prompt, attachments);
+        await react('✅');
+      } catch (e) {
+        await react('❌');
+        log.debug('Immediate send failed:', e);
+      }
+      return;
+    }
     const react = c.showReactions ? (e: string) => client.setReaction(chatId, msgId, e) : async () => {};
     await react('🤔');
     await client.sendTyping(chatId);
