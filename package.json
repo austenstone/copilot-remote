@@ -44,6 +44,10 @@
   },
   "dependencies": {
     "@github/copilot-sdk": "^0.1.32",
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/files": "^1.2.0",
+    "@grammyjs/hydrate": "^1.6.0",
+    "@grammyjs/parse-mode": "^2.2.1",
     "@grammyjs/runner": "^2.0.3",
     "grammy": "^1.41.1"
   },

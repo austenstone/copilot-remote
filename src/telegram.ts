@@ -1,6 +1,10 @@
 // Copilot Remote — Telegram Bridge (grammY)
 import { Bot, type Context } from 'grammy';
 import { run, type RunnerHandle } from '@grammyjs/runner';
+import { autoRetry } from '@grammyjs/auto-retry';
+import { hydrate, type HydrateFlavor } from '@grammyjs/hydrate';
+import { hydrateFiles, type FileFlavor } from '@grammyjs/files';
+import type { Transformer } from 'grammy';
 import { markdownToHtml, markdownToText } from './format.js';
 import { toTelegramReaction } from './emoji.js';
 import { log } from './log.js';
@@ -9,13 +13,15 @@ const MAX_MESSAGE_LENGTH = 4096;
 const DRAFT_ID_MAX = 2_147_483_647;
 let nextDraftId = 0;
 
+type MyContext = HydrateFlavor<FileFlavor<Context>>;
+
 export interface TelegramConfig {
   botToken: string;
   allowedUsers: string[];
 }
 
 export class TelegramBridge {
-  private bot: Bot;
+  private bot: Bot<MyContext>;
   private runner: RunnerHandle | null = null;
   private onMessage:
     | ((
@@ -44,14 +50,39 @@ export class TelegramBridge {
   public topicNames = new Map<string, string>();
 
   constructor(private config: TelegramConfig) {
-    this.bot = new Bot(config.botToken);
+    this.bot = new Bot<MyContext>(config.botToken);
+
+    // ── Plugins ──
+    // Auto-retry on 429 rate limits and 500 errors
+    this.bot.api.config.use(autoRetry());
+    // Default parse mode to HTML via transformer
+    const defaultParseMode: Transformer = (prev, method, payload, signal) => {
+      if ('parse_mode' in payload && (payload as any).parse_mode === undefined) {
+        // Don't override explicit undefined (used for plain text fallback)
+      } else if (!('parse_mode' in payload)) {
+        (payload as any).parse_mode = 'HTML';
+      }
+      return prev(method, payload, signal);
+    };
+    this.bot.api.config.use(defaultParseMode);
+    // File download helpers
+    this.bot.api.config.use(hydrateFiles(config.botToken));
+    // Hydrate API results with methods (msg.editText(), etc.)
+    this.bot.use(hydrate());
+
     if (config.allowedUsers.length > 0) {
       this.pairedUser = config.allowedUsers[0];
     }
+
     this.setupHandlers();
+
+    // Global error boundary
+    this.bot.catch((err) => {
+      log.error('[Telegram] Unhandled error:', err.message);
+    });
   }
 
-  private isAllowed(userId: number | undefined, chatType: string): boolean {
+  private isAllowed(userId: number | undefined, _chatType: string): boolean {
     const id = String(userId);
     if (!this.pairedUser) {
       this.pairedUser = id;
@@ -62,16 +93,20 @@ export class TelegramBridge {
   }
 
   private setupHandlers(): void {
-    // Text messages
-    this.bot.on('message:text', async (ctx) => {
+    // Auth middleware — reject unauthorized users globally
+    this.bot.use(async (ctx, next) => {
       const userId = ctx.from?.id;
-      if (!this.isAllowed(userId, ctx.chat.type)) {
-        if (ctx.chat.type === 'private') {
+      if (!this.isAllowed(userId, ctx.chat?.type ?? '')) {
+        if (ctx.chat?.type === 'private') {
           await ctx.reply('⛔ This instance is paired with another user.');
         }
         return;
       }
+      await next();
+    });
 
+    // Text messages
+    this.bot.on('message:text', async (ctx) => {
       // Track topic name
       const threadId = ctx.message.message_thread_id;
       if (threadId) {
@@ -94,9 +129,6 @@ export class TelegramBridge {
 
     // Photos, documents, voice, audio
     this.bot.on(['message:photo', 'message:document', 'message:voice', 'message:audio'], async (ctx) => {
-      const userId = ctx.from?.id;
-      if (!this.isAllowed(userId, ctx.chat.type)) return;
-
       const msg = ctx.message;
       const fileId =
         msg.voice?.file_id ?? msg.audio?.file_id ?? msg.document?.file_id ?? msg.photo?.[msg.photo.length - 1]?.file_id;
@@ -109,10 +141,9 @@ export class TelegramBridge {
 
     // Callback queries
     this.bot.on('callback_query:data', async (ctx) => {
-      const userId = ctx.from?.id;
       const chatId = String(ctx.callbackQuery.message?.chat?.id ?? '');
-      if (!this.isAllowed(userId, 'callback') || !chatId) {
-        await ctx.answerCallbackQuery().catch(() => {});
+      if (!chatId) {
+        await ctx.answerCallbackQuery();
         return;
       }
 
@@ -127,13 +158,12 @@ export class TelegramBridge {
         /* ignore handler errors */
       }
       // Always answer to dismiss loading
-      await ctx.answerCallbackQuery().catch(() => {});
+      await ctx.answerCallbackQuery();
     });
 
     // Inline queries
     this.bot.on('inline_query', async (ctx) => {
-      const userId = ctx.from?.id;
-      if (!this.isAllowed(userId, 'inline') || !ctx.inlineQuery.query?.trim()) return;
+      if (!ctx.inlineQuery.query?.trim()) return;
       this.onInlineQuery?.(ctx.inlineQuery.id, ctx.inlineQuery.query.trim());
     });
 
@@ -310,8 +340,11 @@ export class TelegramBridge {
   async getFileUrl(fileId: string): Promise<string | null> {
     try {
       const file = await this.bot.api.getFile(fileId);
-      if (!file.file_path) return null;
-      return 'https://api.telegram.org/file/bot' + this.config.botToken + '/' + file.file_path;
+      // Use the files plugin's getUrl() method if available, otherwise build manually
+      const url =
+        (file as any).getUrl?.() ??
+        (file.file_path ? 'https://api.telegram.org/file/bot' + this.config.botToken + '/' + file.file_path : null);
+      return url ?? null;
     } catch {
       return null;
     }
@@ -444,11 +477,17 @@ export class TelegramBridge {
   // ── Internal ──
 
   private async sendText(method: string, params: Record<string, any>, text: string): Promise<any> {
+    // Default parse mode is HTML (via transformer), so the success path just sends HTML.
+    // On failure (invalid HTML from Copilot output), retry with plain text and no parse_mode.
     try {
-      return await (this.bot.api.raw as any)[method]({ ...params, text: markdownToHtml(text), parse_mode: 'HTML' });
+      return await (this.bot.api.raw as any)[method]({ ...params, text: markdownToHtml(text) });
     } catch {
       try {
-        return await (this.bot.api.raw as any)[method]({ ...params, text: markdownToText(text) });
+        return await (this.bot.api.raw as any)[method]({
+          ...params,
+          text: markdownToText(text),
+          parse_mode: undefined,
+        });
       } catch {
         return null;
       }
