@@ -3,6 +3,7 @@ import { Session } from './session.js';
 import type { Client } from './client.js';
 import { TelegramClient } from './clients/telegram.js';
 import { SessionStore } from './store.js';
+import { ConfigStore, type ChatConfig } from './config-store.js';
 import { log } from './log.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -59,41 +60,17 @@ async function main(): Promise<void> {
 
   // ── Per-chat state ──
   type PermKind = 'shell' | 'write' | 'mcp' | 'read' | 'url' | 'custom-tool';
-  interface ChatConfig {
-    showUsage: boolean;
-    showThinking: boolean;
-    showTools: boolean;
-    showReactions: boolean;
-    autopilot: boolean;
-    mode: string;
-    model: string;
-    agent: string | null;
-    reasoningEffort: string;
-    autoApprove: Record<PermKind, boolean>;
-  }
-  const defaultCfg: ChatConfig = {
-    showUsage: false,
-    showThinking: false,
-    showTools: false,
-    showReactions: true,
-    autopilot: false,
-    mode: 'interactive',
-    model: 'claude-sonnet-4',
-    agent: null,
-    reasoningEffort: 'none',
-    autoApprove: {
-      read: true, // reading files is safe
-      shell: false,
-      write: false,
-      mcp: false,
-      url: false,
-      'custom-tool': false,
-    },
-  };
+  // ── Config ──
+  const configStore = new ConfigStore();
+
+  // Is this key a "global" context (DM, not a thread)?
+  const isGlobalKey = (key: string) => !key.includes(':');
+
+  const cfg = (key: string) => configStore.get(key);
+  const setCfg = (key: string, updates: Partial<ChatConfig>) => configStore.set(key, updates, isGlobalKey(key));
 
   const sessions = new Map<string, Session>();
   const workDirs = new Map<string, string>();
-  const configs = new Map<string, ChatConfig>();
   const pendingPerms = new Map<number, string>();
   const sessionStore = new SessionStore();
   const threadMap = new Map<string, number>(); // sessionKey → threadId
@@ -146,8 +123,6 @@ async function main(): Promise<void> {
     return origRemoveReaction(cid, msgId);
   };
 
-  const cfg = (id: string) => configs.get(id) ?? { ...defaultCfg };
-  const setCfg = (id: string, c: ChatConfig) => configs.set(id, c);
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
   // Get or create session
