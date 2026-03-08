@@ -65,6 +65,7 @@ async function main(): Promise<void> {
     showTools: boolean;
     showReactions: boolean;
     autopilot: boolean;
+    mode: string;
     model: string;
     agent: string | null;
     reasoningEffort: string;
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
     showTools: false,
     showReactions: true,
     autopilot: false,
+    mode: 'interactive',
     model: 'claude-sonnet-4',
     agent: null,
     reasoningEffort: 'none',
@@ -147,6 +149,8 @@ async function main(): Promise<void> {
   const cfg = (id: string) => configs.get(id) ?? { ...defaultCfg };
   const setCfg = (id: string, c: ChatConfig) => configs.set(id, c);
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
+
+  const MODE_KEYBOARD = [['⚡ Interactive', '📋 Plan', '🚀 Autopilot']];
 
   // Get or create session
   async function getSession(chatId: string): Promise<Session> {
@@ -341,8 +345,8 @@ async function main(): Promise<void> {
       if (p.intention && p.kind !== detail) detail += '\n_' + p.intention + '_';
       const id = await client.sendButtons(chatId, icon + ' *' + title + '*\n' + detail, [
         [
-          { text: '✅ Approve', data: 'perm:yes' },
-          { text: '❌ Deny', data: 'perm:no' },
+          { text: '✅ Approve', data: 'perm:yes', style: 'constructive' },
+          { text: '❌ Deny', data: 'perm:no', style: 'destructive' },
           { text: '✅ All', data: 'perm:all' },
         ],
       ]);
@@ -453,6 +457,38 @@ async function main(): Promise<void> {
 
     if (text.startsWith('/')) return handleCommand(text, key, messageId);
 
+    // Reply keyboard mode buttons
+    const modeMap: Record<string, string> = {
+      '⚡ Interactive': 'interactive',
+      '📋 Plan': 'plan',
+      '🚀 Autopilot': 'autopilot',
+    };
+    if (modeMap[text]) {
+      const c = cfg(key);
+      const newMode = modeMap[text];
+      if (c.mode === newMode) return; // already in this mode
+      c.mode = newMode;
+      c.autopilot = newMode === 'autopilot';
+      setCfg(key, c);
+      // Restart session with new mode
+      const s = sessions.get(key);
+      if (s?.alive) {
+        const sid = s.sessionId;
+        s.disconnect();
+        const ns = new Session();
+        await ns.resume(sid!, {
+          cwd: workDir(key),
+          binary: bin,
+          model: c.model,
+          autopilot: c.autopilot,
+          reasoningEffort: c.reasoningEffort !== 'none' ? (c.reasoningEffort as any) : undefined,
+        });
+        sessions.set(key, ns);
+      }
+      await client.sendMessage(key, '🔄 Mode: *' + text + '*');
+      return;
+    }
+
     let prompt = text;
     if (replyText) prompt = 'Context (replying to):\n"""\n' + replyText + '\n"""\n\nMy message: ' + text;
     await handlePrompt(key, messageId, prompt);
@@ -480,13 +516,29 @@ async function main(): Promise<void> {
     switch (cmd) {
       case '/start':
       case '/new': {
-        if (args[0] && cmd === '/start') workDirs.set(chatId, args[0]);
+        if (args[0] && cmd === '/start') {
+          const dir = args[0].replace(/^~/, process.env.HOME ?? '~');
+          workDirs.set(chatId, dir);
+        }
         const old = sessions.get(chatId);
         if (old?.alive) old.kill();
         sessions.delete(chatId);
         sessionStore.delete(chatId); // Don't resume old session
         await getSession(chatId);
-        await client.sendMessage(chatId, cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`');
+        // Send reply keyboard with mode switcher
+        if (client.sendReplyKeyboard) {
+          await client.sendReplyKeyboard(
+            chatId,
+            cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`',
+            MODE_KEYBOARD,
+            { resize: true, placeholder: 'Ask Copilot anything...' },
+          );
+        } else {
+          await client.sendMessage(
+            chatId,
+            cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`',
+          );
+        }
         break;
       }
       case '/stop':
@@ -997,9 +1049,33 @@ async function main(): Promise<void> {
       const buffer = Buffer.from(await res.arrayBuffer());
       const tmpDir = '/tmp/copilot-remote';
       const { mkdirSync, writeFileSync } = await import('fs');
+      const { execSync } = await import('child_process');
       mkdirSync(tmpDir, { recursive: true });
       const tmpPath = tmpDir + '/' + fileName;
       writeFileSync(tmpPath, buffer);
+
+      // Voice message transcription
+      if (fileName.endsWith('.oga') || fileName.endsWith('.ogg')) {
+        try {
+          const wavPath = tmpPath.replace(/\.(oga|ogg)$/, '.wav');
+          execSync('ffmpeg -y -i ' + JSON.stringify(tmpPath) + ' ' + JSON.stringify(wavPath), { timeout: 10000 });
+          // Use Gemini for transcription (free)
+          const transcript = execSync(
+            'gemini -p "Transcribe this audio file exactly. Return ONLY the transcription text, nothing else." ' +
+              JSON.stringify(wavPath),
+            { timeout: 30000, encoding: 'utf-8' },
+          ).trim();
+          if (transcript) {
+            const prompt = caption ? caption + '\n\n(Voice transcription: ' + transcript + ')' : transcript;
+            await handlePrompt(chatId, msgId, prompt);
+            return;
+          }
+        } catch (e) {
+          log.debug('Voice transcription failed:', e);
+          // Fall through to file-based handling
+        }
+      }
+
       const prompt = caption
         ? caption + '\n\n[Attached file: ' + tmpPath + ']'
         : 'I sent you a file: ' + tmpPath + '\nPlease read and analyze it.';
@@ -1009,7 +1085,23 @@ async function main(): Promise<void> {
     }
   };
 
-  client.onCallback = async (_, data, chatId, msgId) => {
+  // ── Inline query handler — one-shot answers from any chat ──
+  client.onInlineQuery = async (queryId, query) => {
+    if (!client.answerInlineQuery) return;
+    // For inline mode, we just return a "Send to Copilot" option
+    // that switches to the bot's DM with the query pre-filled
+    await client.answerInlineQuery(queryId, [
+      {
+        type: 'article',
+        id: '1',
+        title: '💬 Ask Copilot: ' + query.slice(0, 50),
+        description: 'Send this question to Copilot',
+        input_message_content: { message_text: query },
+      },
+    ]);
+  };
+
+  client.onCallback = async (callbackId, data, chatId, msgId) => {
     if (data.startsWith('perm:')) {
       const s = sessions.get(chatId);
       if (!s?.alive) return;
@@ -1095,6 +1187,9 @@ async function main(): Promise<void> {
       if (key in c && typeof (c as any)[key] === 'boolean') {
         (c as any)[key] = !(c as any)[key];
         setCfg(chatId, c);
+        const label = key.replace('show', '');
+        const state = (c as any)[key] ? '✅ ON' : '⬜ OFF';
+        client.answerCallback?.(callbackId, label + ': ' + state);
       }
       return sendDisplayMenu(chatId, msgId);
     }

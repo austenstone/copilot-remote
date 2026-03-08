@@ -24,6 +24,9 @@ export class TelegramClient implements Client {
     this.bridge.setFileHandler((fileId, fileName, caption, chatId, msgId, threadId) => {
       this.onFile?.(fileId, fileName, caption, chatId, msgId, threadId);
     });
+    this.bridge.setInlineQueryHandler((queryId, query) => {
+      this.onInlineQuery?.(queryId, query);
+    });
 
     // Register bot command menu
     await this.bridge.setMyCommands([
@@ -90,9 +93,31 @@ export class TelegramClient implements Client {
   pinMessage(chatId: string, messageId: number) {
     return this.bridge.pinMessage(chatId, messageId);
   }
+  deleteMessage(chatId: string, messageId: number) {
+    return this.bridge.deleteMessage(chatId, messageId);
+  }
+  sendReplyKeyboard(chatId: string, text: string, keyboard: string[][], opts?: any) {
+    return this.bridge.sendReplyKeyboard(chatId, text, keyboard, opts);
+  }
+  removeReplyKeyboard(chatId: string, text: string) {
+    return this.bridge.removeReplyKeyboard(chatId, text);
+  }
+  answerCallback(callbackId: string, text?: string, showAlert?: boolean) {
+    return this.bridge.answerCallback(callbackId, text, showAlert);
+  }
+  editReplyMarkup(chatId: string, messageId: number, buttons: any[][]) {
+    return this.bridge.editReplyMarkup(chatId, messageId, buttons);
+  }
+  setMyProfilePhoto(photoUrl: string) {
+    return this.bridge.setMyProfilePhoto(photoUrl);
+  }
+  answerInlineQuery(queryId: string, results: any[]) {
+    return this.bridge.answerInlineQuery(queryId, results);
+  }
 
   onMessage?: Client['onMessage'];
   onCallback?: Client['onCallback'];
   onReaction?: Client['onReaction'];
   onFile?: Client['onFile'];
+  onInlineQuery?: Client['onInlineQuery'];
 }

@@ -10,6 +10,7 @@ export interface MessageOptions {
 export interface Button {
   text: string;
   data: string;
+  style?: string;
 }
 
 export interface Client {
@@ -43,6 +44,22 @@ export interface Client {
   createForumTopic?(chatId: string, name: string): Promise<number | null>;
   deleteForumTopic?(chatId: string, threadId: number): Promise<void>;
   pinMessage?(chatId: string, messageId: number): Promise<void>;
+  deleteMessage?(chatId: string, messageId: number): Promise<void>;
+
+  // Reply keyboard (optional)
+  sendReplyKeyboard?(
+    chatId: string,
+    text: string,
+    keyboard: string[][],
+    opts?: { oneTime?: boolean; resize?: boolean; placeholder?: string },
+  ): Promise<number | null>;
+  removeReplyKeyboard?(chatId: string, text: string): Promise<number | null>;
+
+  // Advanced (optional)
+  answerCallback?(callbackId: string, text?: string, showAlert?: boolean): Promise<void>;
+  editReplyMarkup?(chatId: string, messageId: number, buttons: any[][]): Promise<void>;
+  setMyProfilePhoto?(photoUrl: string): Promise<void>;
+  answerInlineQuery?(queryId: string, results: any[]): Promise<void>;
 
   // Event handlers (set by bridge)
   onMessage?: (
@@ -63,4 +80,5 @@ export interface Client {
     msgId: number,
     threadId?: number,
   ) => Promise<void>;
+  onInlineQuery?: (queryId: string, query: string) => Promise<void>;
 }

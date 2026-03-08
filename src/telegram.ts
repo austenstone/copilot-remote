@@ -43,6 +43,7 @@ export class TelegramBridge {
         threadId?: number,
       ) => void)
     | null = null;
+  private onInlineQuery: ((queryId: string, query: string) => void) | null = null;
   private pairedUser: string | null = null;
 
   constructor(private config: TelegramConfig) {
@@ -69,6 +70,9 @@ export class TelegramBridge {
   }
   setFileHandler(handler: typeof this.onFile): void {
     this.onFile = handler;
+  }
+  setInlineQueryHandler(handler: typeof this.onInlineQuery): void {
+    this.onInlineQuery = handler;
   }
 
   async startPolling(): Promise<void> {
@@ -106,14 +110,21 @@ export class TelegramBridge {
               msg.reply_to_message?.message_id,
               msg.message_thread_id,
             );
-          } else if (update.message && (update.message.photo || update.message.document)) {
+          } else if (
+            update.message &&
+            (update.message.photo || update.message.document || update.message.voice || update.message.audio)
+          ) {
             const msg = update.message;
             const userId = String(msg.from?.id);
             if (userId !== this.pairedUser) continue;
 
-            // Get file_id: largest photo or document
-            const fileId = msg.document?.file_id ?? msg.photo?.[msg.photo.length - 1]?.file_id;
-            const fileName = msg.document?.file_name ?? 'photo.jpg';
+            // Get file_id: largest photo, document, voice, or audio
+            const fileId =
+              msg.voice?.file_id ??
+              msg.audio?.file_id ??
+              msg.document?.file_id ??
+              msg.photo?.[msg.photo.length - 1]?.file_id;
+            const fileName = msg.document?.file_name ?? msg.audio?.file_name ?? (msg.voice ? 'voice.oga' : 'photo.jpg');
             const caption = msg.caption ?? '';
             if (fileId) {
               this.onFile?.(fileId, fileName, caption, String(msg.chat.id), msg.message_id, msg.message_thread_id);
@@ -125,11 +136,25 @@ export class TelegramBridge {
             const chatId = String(cb.message?.chat?.id ?? '');
             const userId = String(cb.from?.id);
             if (userId === this.pairedUser && chatId) {
-              this.onCallback?.(cb.id, cb.data ?? '', chatId, cb.message?.message_id ?? 0);
+              // Let handler answer with custom text/alert; fall back to empty answer
+              try {
+                await this.onCallback?.(cb.id, cb.data ?? '', chatId, cb.message?.message_id ?? 0);
+              } catch {
+                /* ignore handler errors */
+              }
             }
+            // Always answer to dismiss the loading indicator
             await this.api('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {
               /* ignore */
             });
+          }
+
+          if (update.inline_query) {
+            const iq = update.inline_query;
+            const userId = String(iq.from?.id);
+            if (userId === this.pairedUser && iq.query?.trim()) {
+              this.onInlineQuery?.(iq.id, iq.query.trim());
+            }
           }
 
           if (update.message_reaction) {
@@ -185,7 +210,13 @@ export class TelegramBridge {
     buttons: { text: string; data: string }[][],
   ): Promise<number | null> {
     const markup = {
-      inline_keyboard: buttons.map((row) => row.map((btn) => ({ text: btn.text, callback_data: btn.data }))),
+      inline_keyboard: buttons.map((row) =>
+        row.map((btn: any) => ({
+          text: btn.text,
+          callback_data: btn.data,
+          ...(btn.style ? { style: btn.style } : {}),
+        })),
+      ),
     };
     const res = await this.sendText('sendMessage', { chat_id: chatId, reply_markup: markup }, text);
     return res?.result?.message_id ?? null;
@@ -198,7 +229,15 @@ export class TelegramBridge {
     buttons?: { text: string; data: string }[][],
   ): Promise<void> {
     const markup = buttons
-      ? { inline_keyboard: buttons.map((row) => row.map((btn) => ({ text: btn.text, callback_data: btn.data }))) }
+      ? {
+          inline_keyboard: buttons.map((row) =>
+            row.map((btn: any) => ({
+              text: btn.text,
+              callback_data: btn.data,
+              ...(btn.style ? { style: btn.style } : {}),
+            })),
+          ),
+        }
       : { inline_keyboard: [] };
     await this.sendText('editMessageText', { chat_id: chatId, message_id: messageId, reply_markup: markup }, text);
   }
@@ -327,10 +366,97 @@ export class TelegramBridge {
     });
   }
 
-  // ── Bot commands ──
+  // ── Bot commands & profile ──
 
   async setMyCommands(commands: { command: string; description: string }[]): Promise<void> {
     await this.api('setMyCommands', { commands }).catch(() => {
+      /* ignore */
+    });
+  }
+
+  async setMyProfilePhoto(photoUrl: string): Promise<void> {
+    // Download photo then upload as multipart
+    try {
+      const res = await fetch(photoUrl);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const boundary = '----CopilotRemote' + Date.now();
+      const body =
+        '--' +
+        boundary +
+        '\r\n' +
+        'Content-Disposition: form-data; name="photo"; filename="avatar.png"\r\n' +
+        'Content-Type: image/png\r\n\r\n';
+      const end = '\r\n--' + boundary + '--\r\n';
+      const payload = Buffer.concat([Buffer.from(body), buffer, Buffer.from(end)]);
+      await fetch(this.baseUrl + '/setMyProfilePhoto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'multipart/form-data; boundary=' + boundary },
+        body: payload,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async answerCallback(callbackId: string, text?: string, showAlert = false): Promise<void> {
+    await this.api('answerCallbackQuery', {
+      callback_query_id: callbackId,
+      ...(text ? { text, show_alert: showAlert } : {}),
+    }).catch(() => {
+      /* ignore */
+    });
+  }
+
+  async editReplyMarkup(chatId: string | number, messageId: number, buttons: any[][]): Promise<void> {
+    await this.api('editMessageReplyMarkup', {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: buttons },
+    }).catch(() => {
+      /* ignore */
+    });
+  }
+
+  async sendReplyKeyboard(
+    chatId: string | number,
+    text: string,
+    keyboard: string[][],
+    opts?: { oneTime?: boolean; resize?: boolean; placeholder?: string },
+  ): Promise<number | null> {
+    const res = await this.sendText(
+      'sendMessage',
+      {
+        chat_id: chatId,
+        reply_markup: {
+          keyboard: keyboard.map((row) => row.map((t) => ({ text: t }))),
+          one_time_keyboard: opts?.oneTime ?? false,
+          resize_keyboard: opts?.resize ?? true,
+          input_field_placeholder: opts?.placeholder,
+        },
+      },
+      text,
+    );
+    return res?.result?.message_id ?? null;
+  }
+
+  async removeReplyKeyboard(chatId: string | number, text: string): Promise<number | null> {
+    const res = await this.sendText(
+      'sendMessage',
+      {
+        chat_id: chatId,
+        reply_markup: { remove_keyboard: true },
+      },
+      text,
+    );
+    return res?.result?.message_id ?? null;
+  }
+
+  async answerInlineQuery(queryId: string, results: any[]): Promise<void> {
+    await this.api('answerInlineQuery', {
+      inline_query_id: queryId,
+      results,
+      cache_time: 0,
+    }).catch(() => {
       /* ignore */
     });
   }
@@ -366,7 +492,7 @@ export class TelegramBridge {
     const res = await this.api('getUpdates', {
       offset: this.offset,
       timeout: 30,
-      allowed_updates: ['message', 'callback_query', 'message_reaction'],
+      allowed_updates: ['message', 'callback_query', 'message_reaction', 'inline_query'],
     });
     return res.result ?? [];
   }
