@@ -412,7 +412,12 @@ async function main(): Promise<void> {
     };
 
     let streamGeneration = 0;
-    const staleMessageIds: number[] = []; // messages sent by old generations to clean up
+    const staleMessageIds: number[] = []; // messages from old generations, cleaned up at finalize
+
+    // Minimum chars before sending first streaming message.
+    // Prevents premature push notifications (user sees "I" before the full sentence).
+    // Pattern adapted from OpenClaw's DRAFT_MIN_INITIAL_CHARS (MIT, github.com/AustenStone/openclaw)
+    const MIN_INITIAL_CHARS = 50;
 
     const flush = async () => {
       const gen = streamGeneration;
@@ -431,10 +436,12 @@ async function main(): Promise<void> {
 
       // Fallback: send then edit
       if (!streamMsgId) {
-        if (text.length < 15) return;
+        // Debounce first send — wait for enough content for a meaningful push notification
+        // (OpenClaw pattern: minInitialChars gate on first message send)
+        if (text.length < MIN_INITIAL_CHARS) return;
         const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
         if (gen !== streamGeneration) {
-          // Stale — this message was sent but generation moved on. Track for cleanup.
+          // Stale — generation advanced while send was in-flight. Track for cleanup at finalize.
           if (newMsgId) staleMessageIds.push(newMsgId);
           return;
         }
@@ -443,7 +450,9 @@ async function main(): Promise<void> {
       } else {
         log.debug('Stream: edit message', streamMsgId);
         await client.editMessage(chatId, streamMsgId, text);
-        client.sendTyping(chatId); // re-send typing after edit (edit cancels it)
+        // Re-send typing after every edit — Telegram cancels typing indicator on editMessageText
+        // (OpenClaw pattern: typing resilience after edits)
+        client.sendTyping(chatId);
       }
     };
 
@@ -459,11 +468,12 @@ async function main(): Promise<void> {
     };
     const onDelta = (t: string) => {
       if (thinkingText && streamMsgId) {
-        // Thinking was displayed as a real message, start fresh for response
-        const oldMsgId = streamMsgId;
+        // Clean thinking→response lane transition: retire thinking message, let next flush
+        // create a fresh message for the response content.
+        // (OpenClaw pattern: lane transition via generation bump + stale tracking)
+        staleMessageIds.push(streamMsgId);
         streamMsgId = null;
         streamGeneration++;
-        client.deleteMessage?.(chatId, oldMsgId).catch(() => {});
       }
       thinkingText = '';
       responseText += t;
