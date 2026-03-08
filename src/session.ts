@@ -196,7 +196,6 @@ export class Session extends EventEmitter {
         sendFile: async (path, caption) => { this.emit('file', { path, caption }); },
         sendPhoto: async (path, caption) => { this.emit('photo', { path, caption }); },
         sendLocation: async (lat, lon, title) => { this.emit('location', { lat, lon, title }); },
-        sendPoll: async (question, options, anonymous, multiple) => { this.emit('poll', { question, options, anonymous, multiple }); },
         sendVoice: async (path, caption) => { this.emit('voice', { path, caption }); },
         pinMessage: async (messageId) => { this.emit('pin', { messageId }); },
         createTopic: async (name, iconColor) => {

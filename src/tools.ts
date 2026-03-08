@@ -7,7 +7,6 @@ export interface TelegramToolCallbacks {
   sendFile: (path: string, caption?: string) => Promise<void>;
   sendPhoto: (pathOrUrl: string, caption?: string) => Promise<void>;
   sendLocation: (lat: number, lon: number, title?: string) => Promise<void>;
-  sendPoll: (question: string, options: string[], isAnonymous?: boolean, allowsMultiple?: boolean) => Promise<void>;
   sendVoice: (path: string, caption?: string) => Promise<void>;
   pinMessage: (messageId: number) => Promise<void>;
   createTopic: (name: string, iconColor?: number) => Promise<number>;
@@ -70,23 +69,6 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
       },
     }),
 
-    defineTool('send_poll', {
-      description: 'Create a poll in the Telegram chat. Use for quick votes, decisions, or gathering preferences.',
-      parameters: {
-        type: 'object',
-        properties: {
-          question: { type: 'string', description: 'The poll question' },
-          options: { type: 'array', items: { type: 'string' }, description: 'Poll options (2-10)' },
-          anonymous: { type: 'boolean', description: 'Anonymous voting (default true)' },
-          multiple: { type: 'boolean', description: 'Allow multiple answers (default false)' },
-        },
-        required: ['question', 'options'],
-      },
-      handler: async (args: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean }) => {
-        await cb.sendPoll(args.question, args.options, args.anonymous, args.multiple);
-        return { success: true };
-      },
-    }),
 
     defineTool('send_voice', {
       description: 'Send a voice message (audio recorded as voice note) to the user. Use for audio responses or TTS output.',

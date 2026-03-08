@@ -368,15 +368,6 @@ async function main(): Promise<void> {
         await client.sendMessage(chatId, '❌ Failed to send location: ' + e);
       }
     });
-    session.on('poll', async (info: { question: string; options: string[]; anonymous?: boolean; multiple?: boolean }) => {
-      try {
-        const tc = (client as any).bot?.api;
-        if (!tc) throw new Error('No bot API');
-        const numericId = chatId.includes(':') ? Number(chatId.split(':')[0]) : Number(chatId);
-        await tc.sendPoll(numericId, info.question, info.options.map((o: string) => ({ text: o })), {
-          is_anonymous: info.anonymous ?? true,
-          allows_multiple_answers: info.multiple ?? false,
-        });
       } catch (e) {
         await client.sendMessage(chatId, '❌ Failed to send poll: ' + e);
       }
