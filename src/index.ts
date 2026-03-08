@@ -416,7 +416,7 @@ async function main(): Promise<void> {
     };
 
     const schedEdit = () => {
-      if (!timer) timer = setTimeout(flush, Math.max(0, THROTTLE - (Date.now() - lastEdit)));
+      if (!timer) timer = setTimeout(() => { flush().catch(() => {}); }, Math.max(0, THROTTLE - (Date.now() - lastEdit)));
     };
 
     const onThink = (t: string) => {
@@ -547,14 +547,15 @@ async function main(): Promise<void> {
       }
 
       // Finalize: send the complete response
-      if (draftId) {
-        // Draft mode: send real message to replace the draft preview
+      if (draftId && useDraft) {
+        // Draft mode: draft auto-disappears, send real message
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       } else if (streamMsgId && final.length <= 4096) {
         await client.editMessage(chatId, streamMsgId, final);
       } else if (streamMsgId) {
-        await client.editMessage(chatId, streamMsgId, final.slice(0, 4096));
-        await client.sendMessage(chatId, final.slice(4096), { disableLinkPreview: true });
+        // Response too long for single edit — delete stream msg, send fresh
+        await client.deleteMessage(chatId, streamMsgId).catch(() => {});
+        await client.sendMessage(chatId, final, { disableLinkPreview: true });
       } else {
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       }
