@@ -1035,6 +1035,9 @@ async function main(): Promise<void> {
   };
 
   client.onCallback = async (callbackId, data, chatId, msgId) => {
+    // Always answer callback to dismiss loading spinner
+    client.answerCallback?.(callbackId);
+
     if (data.startsWith('perm:')) {
       const s = sessions.get(chatId);
       if (!s?.alive) return;
@@ -1141,6 +1144,7 @@ async function main(): Promise<void> {
     if (data.startsWith('mode:')) {
       const newMode = data.slice(5) as 'interactive' | 'plan' | 'autopilot';
       const c = cfg(chatId);
+      c.mode = newMode;
       c.autopilot = newMode === 'autopilot';
       setCfg(chatId, c);
       // Disconnect + resume with correct permission handler (preserves context)
