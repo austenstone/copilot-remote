@@ -315,7 +315,7 @@ async function main(): Promise<void> {
         await telegram.sendMessage(chatId, finalText, { replyTo: messageId, disableLinkPreview: true });
       }
 
-      await react('👍');
+      await telegram.removeReaction(chatId, messageId);
       if (session.sessionId) {
         console.log('[Session] Conversation ID: ' + session.sessionId);
       }
