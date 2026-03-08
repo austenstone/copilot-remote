@@ -97,7 +97,7 @@ export class TelegramClient implements Client {
 
       this.onMessage?.(
         ctx.message.text,
-        String(ctx.chat.id),
+        String(ctx.chatId),
         ctx.message.message_id,
         ctx.message.reply_to_message?.text,
         ctx.message.reply_to_message?.message_id,
@@ -113,33 +113,30 @@ export class TelegramClient implements Client {
       const fileName = msg.document?.file_name ?? msg.audio?.file_name ?? (msg.voice ? 'voice.oga' : 'photo.jpg');
       const caption = msg.caption ?? '';
       if (fileId) {
-        this.onFile?.(fileId, fileName, caption, String(ctx.chat.id), msg.message_id, msg.message_thread_id);
+        this.onFile?.(fileId, fileName, caption, String(ctx.chatId), msg.message_id, msg.message_thread_id);
       }
     });
 
     // Callback queries
     this.bot.on('callback_query:data', async (ctx) => {
-      const chatId = String(ctx.callbackQuery.message?.chat?.id ?? '');
-      const msg = ctx.callbackQuery.message;
+      const chatId = String(ctx.chatId ?? '');
+      const msg = ctx.msg;
       const msgId = msg?.message_id ?? 0;
       // msg.date > 0 means it's a full Message (not InaccessibleMessage), which has message_thread_id
-      const grammyThreadId = msg && msg.date > 0 ? (msg as unknown as { message_thread_id?: number }).message_thread_id : undefined;
+      const grammyThreadId =
+        msg && msg.date > 0 ? (msg as unknown as { message_thread_id?: number }).message_thread_id : undefined;
       const mapThreadId = this.msgThreadMap.get(msgId);
       const threadId = grammyThreadId ?? mapThreadId;
-      log.info(`Callback: chat=${chatId} threadId=${threadId} (grammy=${grammyThreadId} map=${mapThreadId}) msgId=${msgId} data=${ctx.callbackQuery.data}`);
+      log.info(
+        `Callback: chat=${chatId} threadId=${threadId} (grammy=${grammyThreadId} map=${mapThreadId}) msgId=${msgId} data=${ctx.callbackQuery.data}`,
+      );
       if (!chatId) {
         await ctx.answerCallbackQuery();
         return;
       }
 
       try {
-        await this.onCallback?.(
-          ctx.callbackQuery.id,
-          ctx.callbackQuery.data,
-          chatId,
-          ctx.callbackQuery.message?.message_id ?? 0,
-          threadId,
-        );
+        await this.onCallback?.(ctx.callbackQuery.id, ctx.callbackQuery.data, chatId, msg?.message_id ?? 0, threadId);
       } catch {
         /* ignore handler errors */
       }
@@ -155,9 +152,9 @@ export class TelegramClient implements Client {
     // Reactions
     this.bot.on('message_reaction', async (ctx) => {
       const r = ctx.messageReaction;
-      const chatId = String(r.chat?.id ?? '');
+      const chatId = String(ctx.chatId ?? '');
       const threadId = (r as unknown as Record<string, unknown>)?.message_thread_id as number | undefined;
-      const userId = String(r.user?.id ?? (r as unknown as Record<string, { id?: number }>).actor_chat?.id ?? '');
+      const userId = String(ctx.from?.id ?? (r as unknown as Record<string, { id?: number }>).actor_chat?.id ?? '');
       if (userId !== this.pairedUser || !chatId) return;
       const emojis = (r.new_reaction ?? []).filter((e) => e.type === 'emoji').map((e) => e.emoji);
       for (const emoji of emojis) this.onReaction?.(emoji, chatId, r.message_id, threadId);
