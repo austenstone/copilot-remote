@@ -108,6 +108,7 @@ export class TelegramClient implements Client {
         }
       }
 
+      log.debug(`[telegram] dispatch ${ctx.chatId}:${ctx.message.message_thread_id ?? 'dm'} t=${Date.now()}`);
       this.onMessage?.(
         ctx.message.text,
         String(ctx.chatId),
