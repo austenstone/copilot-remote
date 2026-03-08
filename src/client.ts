@@ -27,7 +27,7 @@ export interface Client {
   editButtons(chatId: string, msgId: number, text: string, buttons: Button[][]): Promise<void>;
 
   // Presence
-  sendTyping(chatId: string): Promise<void>;
+  sendTyping(chatId: string, threadId?: number): Promise<void>;
   setReaction(chatId: string, msgId: number, emoji: string): Promise<void>;
   removeReaction(chatId: string, msgId: number): Promise<void>;
 

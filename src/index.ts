@@ -134,8 +134,8 @@ async function main(): Promise<void> {
     return origEditButtons(cid, msgId, text, buttons);
   };
   client.sendTyping = (key: string) => {
-    const [cid] = resolveKey(key);
-    return origSendTyping(cid);
+    const [cid, tid] = resolveKey(key);
+    return origSendTyping(cid, tid);
   };
   client.setReaction = (key: string, msgId: number, emoji: string) => {
     const [cid] = resolveKey(key);
@@ -226,6 +226,8 @@ async function main(): Promise<void> {
     const react = c.showReactions ? (e: string) => client.setReaction(chatId, msgId, e) : async () => {};
     await react('🤔');
     await client.sendTyping(chatId);
+    // Keep typing indicator alive every 4s while processing
+    const typingInterval = setInterval(() => client.sendTyping(chatId), 4000);
 
     let streamMsgId: number | null = null;
     let draftId: number | null = null;
@@ -394,6 +396,7 @@ async function main(): Promise<void> {
     try {
       const res = await session.send(prompt);
       cleanup();
+      clearInterval(typingInterval);
 
       let final = res.content;
       if (c.showUsage) {
@@ -423,6 +426,7 @@ async function main(): Promise<void> {
       await client.removeReaction(chatId, msgId);
     } catch (err) {
       cleanup();
+      clearInterval(typingInterval);
       await react('😱');
       await client.sendMessage(chatId, '❌ ' + String(err));
     }

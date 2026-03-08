@@ -60,8 +60,8 @@ export class TelegramClient implements Client {
   editButtons(chatId: string, msgId: number, text: string, buttons: Button[][]) {
     return this.bridge.editMessageButtons(chatId, msgId, text, buttons);
   }
-  sendTyping(chatId: string) {
-    return this.bridge.sendTyping(chatId);
+  sendTyping(chatId: string, threadId?: number) {
+    return this.bridge.sendTyping(chatId, threadId);
   }
   setReaction(chatId: string, msgId: number, emoji: string) {
     return this.bridge.setReaction(chatId, msgId, emoji);

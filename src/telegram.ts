@@ -94,7 +94,16 @@ export class TelegramBridge {
 
           if (update.message?.text) {
             const msg = update.message;
-            log.info('[update] chat:', msg.chat.id, 'thread:', msg.message_thread_id, 'type:', msg.chat.type, 'text:', msg.text?.slice(0, 30));
+            log.info(
+              '[update] chat:',
+              msg.chat.id,
+              'thread:',
+              msg.message_thread_id,
+              'type:',
+              msg.chat.type,
+              'text:',
+              msg.text?.slice(0, 30),
+            );
             const userId = String(msg.from?.id);
 
             if (!this.pairedUser) {
@@ -288,8 +297,12 @@ export class TelegramBridge {
 
   // ── Presence ──
 
-  async sendTyping(chatId: string | number): Promise<void> {
-    await this.api('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {
+  async sendTyping(chatId: string | number, threadId?: number): Promise<void> {
+    await this.api('sendChatAction', {
+      chat_id: chatId,
+      action: 'typing',
+      ...(threadId ? { message_thread_id: threadId } : {}),
+    }).catch(() => {
       /* ignore */
     });
   }
