@@ -1,11 +1,11 @@
 // ============================================================
-// Copilot Remote — Session Manager
+// Copilot Remote — PTY Session Manager
 // ============================================================
-// Spawns and manages a Copilot CLI session via child_process.
+// Spawns and manages a Copilot CLI session in a pseudo-terminal.
 // Handles input/output, ANSI stripping, and response detection.
 // ============================================================
 
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import * as pty from 'node-pty';
 import stripAnsi from 'strip-ansi';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
@@ -17,7 +17,7 @@ export interface SessionOptions {
 }
 
 export class CopilotSession extends EventEmitter {
-  private proc: ChildProcessWithoutNullStreams | null = null;
+  private ptyProcess: pty.IPty | null = null;
   private buffer = '';
   private responseBuffer = '';
   private collecting = false;
@@ -54,21 +54,23 @@ export class CopilotSession extends EventEmitter {
     }
 
     try {
-      this.proc = spawn(userShell, ['-l', '-c', copilotBin], {
+      this.ptyProcess = pty.spawn(userShell, ['-l', '-c', copilotBin], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
         cwd: options.cwd,
-        env: { ...process.env, ...options.env, TERM: 'xterm-256color' },
-        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ...options.env } as Record<string, string>,
       });
     } catch (err) {
-      console.error('[Session] spawn failed:', err);
+      console.error('[Session] pty.spawn failed:', err);
       throw err;
     }
 
-    console.log('[Session] Process spawned, pid: ' + this.proc.pid);
+    console.log('[Session] PTY spawned, pid: ' + this.ptyProcess.pid);
     this._alive = true;
 
-    const handleData = (data: Buffer) => {
-      const cleaned = stripAnsi(data.toString());
+    this.ptyProcess.onData((data: string) => {
+      const cleaned = stripAnsi(data);
       this.buffer += cleaned;
       console.log('[Session] out: ' + JSON.stringify(cleaned.slice(0, 200)));
       this.emit('output', cleaned);
@@ -85,28 +87,19 @@ export class CopilotSession extends EventEmitter {
           this.emit('waiting');
         }
       }
-    };
-
-    this.proc.stdout.on('data', handleData);
-    this.proc.stderr.on('data', handleData);
-
-    this.proc.on('close', (code) => {
-      console.log('[Session] Process exited with code: ' + code);
-      this._alive = false;
-      this.emit('exit', code ?? 1);
     });
 
-    this.proc.on('error', (err) => {
-      console.error('[Session] Process error:', err);
+    this.ptyProcess.onExit(({ exitCode }) => {
+      console.log('[Session] Process exited with code: ' + exitCode);
       this._alive = false;
-      this.emit('error', err);
+      this.emit('exit', exitCode);
     });
 
     await this.waitForPrompt(30_000);
   }
 
   send(text: string): void {
-    if (!this.proc || !this._alive) {
+    if (!this.ptyProcess || !this._alive) {
       throw new Error('Session not running');
     }
 
@@ -114,7 +107,7 @@ export class CopilotSession extends EventEmitter {
     this.responseBuffer = '';
     this.collecting = true;
 
-    this.proc.stdin.write(text + '\n');
+    this.ptyProcess.write(text + '\r');
   }
 
   approve(): void {
@@ -125,10 +118,14 @@ export class CopilotSession extends EventEmitter {
     this.send('n');
   }
 
+  resize(cols: number, rows: number): void {
+    this.ptyProcess?.resize(cols, rows);
+  }
+
   kill(): void {
     this._alive = false;
-    this.proc?.kill();
-    this.proc = null;
+    this.ptyProcess?.kill();
+    this.ptyProcess = null;
   }
 
   private isPrompt(text: string): boolean {
