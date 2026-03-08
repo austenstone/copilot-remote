@@ -166,15 +166,22 @@ export class TelegramClient implements Client {
     // Register bot command menu
     await this.bot.api
       .setMyCommands([
-        { command: 'new', description: 'Fresh session' },
-        { command: 'stop', description: 'Kill session' },
-        { command: 'cd', description: 'Change working directory' },
-        { command: 'status', description: 'Model, mode, cwd, quota' },
-        { command: 'config', description: 'Settings menu' },
-        { command: 'plan', description: 'Plan mode' },
+        { command: 'new', description: 'Start fresh session' },
+        { command: 'config', description: 'Settings & preferences' },
+        { command: 'status', description: 'Session info & quota' },
         { command: 'agent', description: 'Switch agent' },
-        { command: 'compact', description: 'Compress context' },
-        { command: 'help', description: 'All commands' },
+        { command: 'tools', description: 'Manage tools' },
+        { command: 'usage', description: 'Usage & token stats' },
+        { command: 'research', description: 'Deep research a topic' },
+        { command: 'cd', description: 'Change working directory' },
+        { command: 'abort', description: 'Cancel current operation' },
+        { command: 'compact', description: 'Compress context window' },
+        { command: 'plan', description: 'View/manage plan' },
+        { command: 'diff', description: 'Review uncommitted changes' },
+        { command: 'review', description: 'Code review recent changes' },
+        { command: 'files', description: 'List workspace files' },
+        { command: 'skills', description: 'List available skills' },
+        { command: 'mcp', description: 'MCP server status' },
       ])
       .catch(() => {});
 
