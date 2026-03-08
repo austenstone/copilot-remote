@@ -125,6 +125,8 @@ async function main(): Promise<void> {
   const setCfg = (key: string, updates: Partial<ChatConfig>) => configStore.set(key, updates, true);
 
   const sessions = new Map<string, Session>();
+  _globalSessions = sessions;
+  _globalClient = client;
   const workDirs = new Map<string, string>();
   const pendingPerms = new Map<number, string>();
   const sessionStore = new SessionStore();
@@ -745,8 +747,13 @@ async function main(): Promise<void> {
       try { session.kill(); } catch { /* ignore */ }
       sessions.delete(chatId);
       sessionStore.delete(chatId);
+      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
       react(LIFECYCLE_REACTIONS.error);
-      await client.sendMessage(chatId, '❌ Session error: ' + String(sendErr) + '\n\nUse /new to start a fresh session.');
+      const userMsg = errMsg.includes('STREAM_DESTROYED') ? '💀 Lost connection to Copilot. Send a message to reconnect.'
+        : errMsg.includes('idle timeout') ? '⏱️ Session timed out (no activity for 2 min). Send a message to start fresh.'
+        : errMsg.includes('timeout') ? '⏱️ Request timed out. Send a message to try again.'
+        : '❌ `' + errMsg.slice(0, 200) + '`\nSend a message to start a new session.';
+      await client.sendMessage(chatId, userMsg);
       return;
     }
     try {
@@ -1605,13 +1612,28 @@ async function main(): Promise<void> {
   await client.start();
 }
 
-// Global error handlers — prevent crashes from unhandled rejections (e.g. ERR_STREAM_DESTROYED)
+// Global error handlers — capture crashes and notify all active sessions
+let _globalClient: Client | undefined;
+let _globalSessions: Map<string, Session> | undefined;
+
+function notifyActiveSessions(msg: string) {
+  if (!_globalClient || !_globalSessions) return;
+  for (const chatId of _globalSessions.keys()) {
+    _globalClient.sendMessage(chatId, msg).catch(() => {});
+  }
+}
+
 process.on('uncaughtException', (err) => {
   log.error('Uncaught exception:', err.message);
-  // Don't exit — let LaunchAgent handle restarts for truly fatal errors
+  notifyActiveSessions('⚠️ *Internal error:* `' + err.message.slice(0, 200) + '`\nSession may need a `/new` restart.');
 });
 process.on('unhandledRejection', (reason) => {
-  log.error('Unhandled rejection:', reason instanceof Error ? reason.message : String(reason));
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  log.error('Unhandled rejection:', msg);
+  // Only notify on serious errors, not routine ones
+  if (msg.includes('STREAM_DESTROYED') || msg.includes('ECONNRESET') || msg.includes('session')) {
+    notifyActiveSessions('⚠️ *Connection lost:* `' + msg.slice(0, 200) + '`\nSend a message to reconnect.');
+  }
 });
 
 main().catch((e) => {
