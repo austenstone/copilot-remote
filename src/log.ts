@@ -8,13 +8,8 @@ export const log = {
   debug: (...args: any[]) => {
     if (_debug) console.log('[DEBUG]', ...args);
   },
-  sdk: (type: string, data?: any) => {
-    if (_debug) {
-      const d = data ? ' ' + JSON.stringify(data).slice(0, 300) : '';
-      console.log('[SDK] ' + type + d);
-    } else {
-      console.log('[SDK] ' + type);
-    }
+  sdk: (type: string) => {
+    if (_debug) console.log('[SDK] ' + type);
   },
   telegram: (...args: any[]) => {
     if (_debug) console.log('[TG]', ...args);
