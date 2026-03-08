@@ -195,6 +195,9 @@ export class Session extends EventEmitter {
         sendNotification: async (text: string) => {
           this.emit('notification', text);
         },
+        sendFile: async (path: string, caption?: string) => {
+          this.emit('file', { path, caption });
+        },
       }),
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),

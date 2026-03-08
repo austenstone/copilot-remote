@@ -318,6 +318,30 @@ async function main(): Promise<void> {
     session.on('notification', async (text: string) => {
       await client.sendMessage(chatId, '🔔 ' + text);
     });
+    session.on('file', async (info: { path: string; caption?: string }) => {
+      try {
+        const { InputFile } = await import('grammy');
+        const ext = info.path.split('.').pop()?.toLowerCase() ?? '';
+        const tc = (client as any).bot?.api;
+        if (!tc) throw new Error('No bot API');
+        const numericId = chatId.includes(':') ? Number(chatId.split(':')[0]) : Number(chatId);
+        const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
+        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+        const file = new InputFile(info.path);
+        if (audioExts.includes(ext)) {
+          await tc.sendAudio(numericId, file, { caption: info.caption });
+        } else if (imageExts.includes(ext)) {
+          await tc.sendPhoto(numericId, file, { caption: info.caption });
+        } else if (videoExts.includes(ext)) {
+          await tc.sendVideo(numericId, file, { caption: info.caption });
+        } else {
+          await tc.sendDocument(numericId, file, { caption: info.caption });
+        }
+      } catch (e) {
+        await client.sendMessage(chatId, '❌ Failed to send file: ' + e);
+      }
+    });
     session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
       const msg = info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
       await client.sendMessage(chatId, '⚠️ *SDK Error:* ' + msg);
