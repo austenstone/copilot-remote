@@ -298,6 +298,64 @@ export class Session extends EventEmitter {
     return this.client.listModels();
   }
 
+  // ── Copilot RPC commands ──
+
+  async setMode(mode: 'interactive' | 'plan' | 'autopilot'): Promise<void> {
+    if (!this.session) throw new Error('No session');
+    await this.session.rpc.mode.set({ mode });
+  }
+
+  async getMode(): Promise<string> {
+    if (!this.session) throw new Error('No session');
+    const result = await this.session.rpc.mode.get();
+    return result.mode;
+  }
+
+  async startFleet(prompt?: string): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.fleet.start({ prompt });
+  }
+
+  async compact(): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.compaction.compact();
+  }
+
+  async readPlan(): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.plan.read();
+  }
+
+  async listAgents(): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.agent.list();
+  }
+
+  async selectAgent(agent: string): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.agent.select({ name: agent });
+  }
+
+  async deselectAgent(): Promise<any> {
+    if (!this.session) throw new Error('No session');
+    return this.session.rpc.agent.deselect();
+  }
+
+  async listTools(): Promise<any> {
+    if (!this.client) throw new Error('No client');
+    return (this.client as any).rpc.tools.list({ sessionId: this.session!.sessionId });
+  }
+
+  async getQuota(): Promise<any> {
+    if (!this.client) throw new Error('No client');
+    return (this.client as any).rpc.account.getQuota();
+  }
+
+  async getSessionMessages(): Promise<any[]> {
+    if (!this.session) return [];
+    return this.session.getMessages();
+  }
+
   async newSession(): Promise<void> {
     if (this.session) {
       await this.session.disconnect();

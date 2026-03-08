@@ -459,19 +459,37 @@ async function main(): Promise<void> {
       }
 
       case '/agent': {
+        const session = sessions.get(chatId);
         const agentName = args[0] || null;
-        const cfg = getConfig(chatId);
-        cfg.agent = agentName;
-        setConfig(chatId, cfg);
 
-        if (agentName) {
-          // Restart session with the agent
-          const session = sessions.get(chatId);
-          if (session?.alive) await session.kill();
-          sessions.delete(chatId);
-          await telegram.sendMessage(chatId, '🤖 Agent set to `' + agentName + '`. Next message will start a new session.');
+        if (!agentName && session?.alive) {
+          // List available agents
+          try {
+            const result = await session.listAgents();
+            const agents = (result as any)?.agents ?? result;
+            if (Array.isArray(agents) && agents.length > 0) {
+              const current = await session.deselectAgent().catch(() => null);
+              const lines = agents.map((a: any) => '• `' + (a.name ?? a) + '`');
+              await telegram.sendMessage(chatId, '🤖 *Available Agents*\n' + lines.join('\n'));
+            } else {
+              await telegram.sendMessage(chatId, '🤖 No custom agents found in this workspace.');
+            }
+          } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
+          break;
+        }
+
+        if (agentName && session?.alive) {
+          try {
+            await session.selectAgent(agentName);
+            await telegram.sendMessage(chatId, '🤖 Switched to agent: `' + agentName + '`');
+          } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
+        } else if (agentName) {
+          const cfg = getConfig(chatId);
+          cfg.agent = agentName;
+          setConfig(chatId, cfg);
+          await telegram.sendMessage(chatId, '🤖 Agent set to `' + agentName + '`. Will apply on next session.');
         } else {
-          await telegram.sendMessage(chatId, '🤖 Agent cleared. Using default Copilot.');
+          await telegram.sendMessage(chatId, 'Usage: `/agent [name]` or `/agent` to list');
         }
         break;
       }
@@ -481,19 +499,25 @@ async function main(): Promise<void> {
         break;
       }
 
-      // ── Copilot CLI passthrough commands ──
-      // These send the command directly to the Copilot session.
-      // The SDK/CLI handles them natively.
+      // ── Copilot CLI commands (via SDK RPC) ──
 
       case '/plan': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        const planPrompt = args.length > 0
-          ? '/plan ' + args.join(' ')
-          : '/plan';
-        await telegram.sendMessage(chatId, '📋 Entering plan mode...');
-        // Send as a regular prompt — Copilot handles /plan internally
-        await handlePrompt(chatId, messageId, planPrompt);
+        try {
+          if (args.length > 0) {
+            // Plan with a task — switch to plan mode then send the task
+            await session.setMode('plan');
+            await telegram.sendMessage(chatId, '📋 Plan mode ON');
+            await handlePrompt(chatId, messageId, args.join(' '));
+          } else {
+            // Toggle plan mode
+            const current = await session.getMode();
+            const next = current === 'plan' ? 'interactive' : 'plan';
+            await session.setMode(next);
+            await telegram.sendMessage(chatId, next === 'plan' ? '📋 Plan mode ON' : '⚡ Interactive mode');
+          }
+        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
         break;
       }
 
@@ -501,106 +525,117 @@ async function main(): Promise<void> {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
         if (args.length === 0) { await telegram.sendMessage(chatId, 'Usage: `/research <topic>`'); break; }
-        await telegram.sendMessage(chatId, '🔬 Starting deep research...');
-        await handlePrompt(chatId, messageId, '/research ' + args.join(' '));
+        await handlePrompt(chatId, messageId, 'Research this topic thoroughly using web search and GitHub: ' + args.join(' '));
         break;
       }
 
       case '/compact': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await telegram.sendMessage(chatId, '🗜️ Compacting context...');
-        await handlePrompt(chatId, messageId, '/compact');
+        try {
+          const result = await session.compact();
+          const freed = result?.tokensFreed ?? '?';
+          const removed = result?.messagesRemoved ?? '?';
+          await telegram.sendMessage(chatId, '🗜️ Compacted: ' + freed + ' tokens freed, ' + removed + ' messages removed');
+        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
         break;
       }
 
       case '/diff': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await telegram.sendMessage(chatId, '📝 Reviewing changes...');
-        await handlePrompt(chatId, messageId, '/diff');
+        await handlePrompt(chatId, messageId, 'Review all uncommitted changes in the current directory. Show a summary of what changed and any issues.');
         break;
       }
 
       case '/review': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await telegram.sendMessage(chatId, '🔍 Running code review...');
-        await handlePrompt(chatId, messageId, '/review');
+        await handlePrompt(chatId, messageId, 'Run a thorough code review of the recent changes in this repository. Check for bugs, security issues, and style problems.');
         break;
       }
 
       case '/context': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/context');
+        try {
+          const messages = await session.getSessionMessages();
+          const count = messages.length;
+          await telegram.sendMessage(chatId, '📊 Context: ' + count + ' events in session');
+        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
         break;
       }
 
       case '/usage': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/usage');
+        try {
+          const quota = await session.getQuota();
+          const lines = ['📊 *Usage*'];
+          if (quota?.premiumRequests != null) lines.push('Premium requests: ' + quota.premiumRequests);
+          if (quota?.remainingQuota != null) lines.push('Remaining quota: ' + quota.remainingQuota);
+          if (quota?.resetAt) lines.push('Resets: ' + new Date(quota.resetAt).toLocaleDateString());
+          await telegram.sendMessage(chatId, lines.length > 1 ? lines.join('\n') : '📊 ' + JSON.stringify(quota));
+        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
         break;
       }
 
       case '/share': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        const shareArg = args.length > 0 ? ' ' + args.join(' ') : '';
-        await handlePrompt(chatId, messageId, '/share' + shareArg);
+        await handlePrompt(chatId, messageId, 'Share this conversation as a markdown summary.');
         break;
       }
 
       case '/init': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await telegram.sendMessage(chatId, '📄 Initializing copilot-instructions.md...');
-        await handlePrompt(chatId, messageId, '/init');
+        await handlePrompt(chatId, messageId, 'Initialize copilot-instructions.md for this repository with sensible defaults based on the codebase.');
         break;
       }
 
       case '/fleet': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/fleet');
+        try {
+          const prompt = args.length > 0 ? args.join(' ') : undefined;
+          const result = await session.startFleet(prompt);
+          await telegram.sendMessage(chatId, '🚀 Fleet mode: ' + (result?.activated ? 'activated' : JSON.stringify(result)));
+        } catch (err) { await telegram.sendMessage(chatId, '❌ ' + String(err)); }
         break;
       }
 
       case '/tasks': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/tasks');
+        await handlePrompt(chatId, messageId, 'List all active background tasks and subagents.');
         break;
       }
 
       case '/resume': {
-        const session = sessions.get(chatId);
-        if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        const resumeArg = args.length > 0 ? ' ' + args.join(' ') : '';
-        await handlePrompt(chatId, messageId, '/resume' + resumeArg);
+        // TODO: implement session switching via client.resumeSession()
+        await telegram.sendMessage(chatId, '🔄 Session resume not yet implemented. Use `/new` to start fresh.');
         break;
       }
 
       case '/instructions': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/instructions');
+        await handlePrompt(chatId, messageId, 'Show me which custom instruction files are active in this repository.');
         break;
       }
 
       case '/skills': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        await handlePrompt(chatId, messageId, '/skills');
+        await handlePrompt(chatId, messageId, 'List all available skills and their status.');
         break;
       }
 
       case '/mcp': {
         const session = sessions.get(chatId);
         if (!session?.alive) { await telegram.sendMessage(chatId, 'No active session.'); break; }
-        const mcpArg = args.length > 0 ? ' ' + args.join(' ') : '';
-        await handlePrompt(chatId, messageId, '/mcp' + mcpArg);
+        await handlePrompt(chatId, messageId, 'Show me the configured MCP servers and their status.');
         break;
       }
 
