@@ -56,7 +56,6 @@ export class TelegramBridge {
             if (!this.pairedUser) {
               this.pairedUser = userId;
               console.log('[Telegram] Auto-paired with user ' + userId + ' (' + (msg.from?.first_name ?? '') + ')');
-              await this.sendMessage(msg.chat.id, '🔗 Paired! You now control this Copilot Remote instance.');
             }
 
             if (userId !== this.pairedUser) {
