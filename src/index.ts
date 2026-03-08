@@ -526,9 +526,12 @@ async function main(): Promise<void> {
 
   // ── Prompt handler (streaming + reactions) ──
   async function handlePrompt(chatId: string, msgId: number, prompt: string, attachments?: FileAttachment[]): Promise<void> {
+    log.debug(`[handlePrompt] START [${chatId}] "${prompt.slice(0, 40)}"`);
     let session: Session;
     try {
+      const t0 = Date.now();
       session = await getSession(chatId);
+      log.debug(`[handlePrompt] getSession took ${Date.now() - t0}ms [${chatId}]`);
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       // If reasoning effort not supported, retry without it
@@ -822,7 +825,9 @@ async function main(): Promise<void> {
 
     let res: { content: string };
     try {
+      log.debug(`[handlePrompt] session.send START [${chatId}]`);
       res = await session.send(prompt, attachments);
+      log.debug(`[handlePrompt] session.send DONE [${chatId}]`);
     } catch (sendErr) {
       cleanup();
       clearInterval(typingInterval);
