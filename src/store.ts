@@ -39,7 +39,7 @@ export class SessionStore {
   private openDb(): void {
     try {
       if (existsSync(DB_PATH)) {
-        this.db = new DatabaseSync(DB_PATH, { open: true });
+        this.db = new DatabaseSync(DB_PATH, { open: true, readOnly: true });
         log.info('[store] Opened shared session DB:', DB_PATH);
       }
     } catch (e) {

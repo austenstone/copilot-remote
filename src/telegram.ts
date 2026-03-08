@@ -368,6 +368,11 @@ export class TelegramClient implements Client {
 
   async sendDraft(chatId: string, draftId: number, text: string, threadId?: number): Promise<boolean> {
     if (this.draftDisabledChats.has(chatId)) return false;
+    // Drafts only work in DMs — skip supergroups immediately
+    if (chatId.startsWith('-')) {
+      this.draftDisabledChats.add(chatId);
+      return false;
+    }
     try {
       const params: Record<string, unknown> = {
         chat_id: chatId,
@@ -376,10 +381,14 @@ export class TelegramClient implements Client {
         parse_mode: 'HTML',
       };
       if (threadId) params.message_thread_id = threadId;
-      // Use raw fetch — grammY may not expose sendMessageDraft natively
       const resp = await fetch(
         `https://api.telegram.org/bot${this.config.botToken}/sendMessageDraft`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+          signal: AbortSignal.timeout(2000), // 2s timeout — don't block streaming
+        },
       );
       const json = (await resp.json()) as { ok?: boolean; description?: string };
       if (!json.ok) throw new Error(json.description ?? 'sendMessageDraft failed');
