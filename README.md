@@ -24,29 +24,57 @@ Your Copilot CLI runs locally with full access to your filesystem, GitHub contex
 
 ## Setup
 
+### 1. Install Copilot CLI
+
+```bash
+# macOS/Linux
+brew install copilot-cli
+
+# or via npm
+npm install -g @github/copilot
+
+# Authenticate
+copilot
+```
+
+### 2. Create a Telegram Bot
+
+1. Open Telegram and message [@BotFather](https://t.me/botfather)
+2. Send `/newbot`
+3. Choose a name (e.g. "My Copilot Remote")
+4. Choose a username (e.g. `my_copilot_remote_bot`)
+5. BotFather gives you a token like `123456:ABC-DEF...` — copy it
+
+### 3. Install & Run
+
 ```bash
 git clone https://github.com/tag-assistant/copilot-remote.git
 cd copilot-remote
 npm install
 ```
 
-Create `.copilot-remote.json`:
+Set your bot token and start:
+
+```bash
+export COPILOT_REMOTE_BOT_TOKEN="your-token-from-botfather"
+npm run dev
+```
+
+### 4. Pair
+
+Message your bot in Telegram. The first person to message gets auto-paired — no config needed. Everyone else is blocked.
+
+Optionally, pre-configure allowed users in `.copilot-remote.json`:
 
 ```json
 {
-  "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
-  "allowedUsers": ["YOUR_TELEGRAM_USER_ID"],
+  "botToken": "your-token-from-botfather",
+  "allowedUsers": ["your-telegram-user-id"],
   "workDir": "/path/to/your/project"
 }
 ```
 
-Or use environment variables:
-
-```bash
-export COPILOT_REMOTE_BOT_TOKEN="..."
-export COPILOT_REMOTE_ALLOWED_USERS="6694168781"
-export COPILOT_REMOTE_WORKDIR="/path/to/project"
-```
+> **Tip:** To find your Telegram user ID, message [@userinfobot](https://t.me/userinfobot).
 
 ## Usage
 
