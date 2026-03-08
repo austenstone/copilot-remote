@@ -884,11 +884,8 @@ async function main(): Promise<void> {
         const dir = workDir(chatId);
         const lines: string[] = [];
 
-        // Session ID + resume command
-        if (s.sessionId) {
-          lines.push('🆔 `' + s.sessionId + '`');
-          lines.push('```\ncopilot --resume ' + s.sessionId + '\n```');
-        }
+        // Resume command at the bottom
+        const resumeCmd = s.sessionId ? '\n```\ncopilot --resume ' + s.sessionId + '\n```' : '';
 
         // Git branch
         try {
@@ -966,7 +963,7 @@ async function main(): Promise<void> {
           /* ignore */
         }
 
-        await client.sendMessage(chatId, lines.join('\n'));
+        await client.sendMessage(chatId, lines.join("\n") + resumeCmd);
         break;
       }
       case '/yes':
