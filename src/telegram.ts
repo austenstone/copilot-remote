@@ -27,6 +27,7 @@ export class TelegramClient implements Client {
   private runner: RunnerHandle | null = null;
   private pairedUser: string | null = null;
   private topicNames = new Map<string, string>();
+  private msgThreadMap = new Map<number, number>(); // msgId → threadId for callback resolution
 
   // Event handlers (set by bridge consumer)
   onMessage?: Client['onMessage'];
@@ -119,9 +120,12 @@ export class TelegramClient implements Client {
     // Callback queries
     this.bot.on('callback_query:data', async (ctx) => {
       const chatId = String(ctx.callbackQuery.message?.chat?.id ?? '');
-      const threadId = (ctx.callbackQuery.message as unknown as Record<string, unknown>)?.message_thread_id as
-        | number
-        | undefined;
+      const msg = ctx.callbackQuery.message;
+      const msgId = msg?.message_id ?? 0;
+      const threadId =
+        ((msg as unknown as Record<string, unknown>)?.message_thread_id as number | undefined) ??
+        this.msgThreadMap.get(msgId);
+      log.debug(`Callback: chat=${chatId} threadId=${threadId} data=${ctx.callbackQuery.data}`);
       if (!chatId) {
         await ctx.answerCallbackQuery();
         return;
@@ -212,6 +216,7 @@ export class TelegramClient implements Client {
       const res = await this.sendText('sendMessage', { chat_id: chatId, ...extra }, chunk);
       lastMsgId = res?.message_id ?? null;
     }
+    if (lastMsgId && opts?.threadId) this.msgThreadMap.set(lastMsgId, opts.threadId);
     return lastMsgId;
   }
 
@@ -235,7 +240,9 @@ export class TelegramClient implements Client {
       { chat_id: chatId, reply_markup: markup, ...(threadId ? { message_thread_id: threadId } : {}) },
       text,
     );
-    return res?.message_id ?? null;
+    const msgId = res?.message_id ?? null;
+    if (msgId && threadId) this.msgThreadMap.set(msgId, threadId);
+    return msgId;
   }
 
   async editButtons(chatId: string, msgId: number, text: string, buttons: Button[][]): Promise<void> {
