@@ -59,15 +59,24 @@ export class CopilotSession extends EventEmitter {
 
     console.log('[Session] Spawning: ' + userShell + ' -l -c ' + copilotBin);
     console.log('[Session] CWD: ' + options.cwd);
-    console.log('[Session] Shell: ' + userShell);
+
+    // Verify CWD exists
+    const fs = require('fs');
+    if (!fs.existsSync(options.cwd)) {
+      throw new Error('Working directory does not exist: ' + options.cwd);
+    }
 
     try {
-      this.ptyProcess = pty.spawn(userShell, ['-l', '-c', copilotBin], {
+      // First test: can we spawn anything at all?
+      this.ptyProcess = pty.spawn('/bin/zsh', ['-c', copilotBin], {
         name: 'xterm-256color',
         cols: 120,
         rows: 40,
         cwd: options.cwd,
-        env: { ...process.env, ...options.env } as Record<string, string>,
+        env: {
+          ...process.env,
+          ...options.env,
+        } as Record<string, string>,
       });
     } catch (err) {
       console.error('[Session] pty.spawn failed:', err);
