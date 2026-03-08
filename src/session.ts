@@ -1,199 +1,217 @@
 // ============================================================
-// Copilot Remote — ACP Session Manager
+// Copilot Remote — Session Manager (Copilot SDK)
 // ============================================================
-// Uses Agent Client Protocol for persistent, streaming
-// communication with Copilot CLI. Supports message queuing,
-// cancellation, and real-time session updates.
+// Uses @github/copilot-sdk for full Copilot CLI integration.
+// Handles streaming, tools, permissions, model switching,
+// custom agents, and message queuing.
 // ============================================================
 
-import * as acp from '@agentclientprotocol/sdk';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { Readable, Writable } from 'node:stream';
+import {
+  CopilotClient,
+  CopilotSession as SDKSession,
+  approveAll,
+  type SessionEvent,
+  type ModelInfo,
+  type PermissionRequest,
+  type SessionConfig,
+} from '@github/copilot-sdk';
 import { EventEmitter } from 'events';
 
 export interface SessionOptions {
   cwd: string;
   binary?: string;
   env?: Record<string, string>;
+  model?: string;
+  allowAllTools?: boolean;
+  agent?: string;
 }
 
 export interface CopilotMessage {
   messageId: string;
   content: string;
-  toolRequests: any[];
-  outputTokens?: number;
+  toolCalls: ToolCall[];
+  usage?: UsageInfo;
 }
 
-export class CopilotSession extends EventEmitter {
-  private proc: ChildProcess | null = null;
-  private connection: acp.ClientSideConnection | null = null;
-  private sessionId: string | null = null;
+export interface ToolCall {
+  name: string;
+  arguments?: string;
+  result?: string;
+  success?: boolean;
+  duration?: number;
+}
+
+export interface UsageInfo {
+  inputTokens?: number;
+  outputTokens?: number;
+  model?: string;
+  totalRequests?: number;
+}
+
+export class Session extends EventEmitter {
+  private client: CopilotClient | null = null;
+  private session: SDKSession | null = null;
   private _alive = false;
   private _busy = false;
   private _model: string | null = null;
   private _allowAllTools = false;
-  private cwd!: string;
-  private binary!: string;
-  private sessionEnv!: Record<string, string>;
+  private _agent: string | null = null;
+  private cwd: string = '';
 
-  // Message queue for handling spam
+  // Message queue
   private messageQueue: { prompt: string; resolve: (msg: CopilotMessage) => void; reject: (err: Error) => void }[] = [];
   private processing = false;
 
   get alive(): boolean { return this._alive; }
   get busy(): boolean { return this._busy; }
-  get currentSessionId(): string | null { return this.sessionId; }
+  get currentSessionId(): string | null { return this.session?.sessionId ?? null; }
   get allowAllTools(): boolean { return this._allowAllTools; }
   set allowAllTools(v: boolean) { this._allowAllTools = v; }
   get model(): string | null { return this._model; }
   set model(v: string | null) { this._model = v; }
+  get agent(): string | null { return this._agent; }
+  set agent(v: string | null) { this._agent = v; }
 
   async start(options: SessionOptions): Promise<void> {
     this.cwd = options.cwd;
-    this.binary = options.binary ?? 'copilot';
-    this.sessionEnv = { ...process.env, ...options.env } as Record<string, string>;
+    this._model = options.model ?? null;
+    this._allowAllTools = options.allowAllTools ?? false;
+    this._agent = options.agent ?? null;
 
-    const args = ['--acp', '--stdio'];
-    if (this._model) args.push('--model', this._model);
-    if (this._allowAllTools) args.push('--allow-all-tools');
+    const clientOptions: Record<string, any> = {
+      useStdio: true,
+    };
+    if (options.binary) clientOptions.cliPath = options.binary;
 
-    console.log('[ACP] Spawning: ' + this.binary + ' ' + args.join(' '));
+    this.client = new CopilotClient(clientOptions);
+    await this.client.start();
 
-    this.proc = spawn(this.binary, args, {
-      stdio: ['pipe', 'pipe', 'inherit'],
-      cwd: this.cwd,
-      env: this.sessionEnv,
-    });
+    console.log('[SDK] Client started');
 
-    if (!this.proc.stdin || !this.proc.stdout) {
-      throw new Error('Failed to start Copilot ACP process');
-    }
+    await this.createSession();
+  }
 
-    // Create ACP streams
-    const output = Writable.toWeb(this.proc.stdin) as WritableStream<Uint8Array>;
-    const input = Readable.toWeb(this.proc.stdout) as ReadableStream<Uint8Array>;
-    const stream = acp.ndJsonStream(output, input);
+  private async createSession(): Promise<void> {
+    if (!this.client) throw new Error('Client not started');
 
-    // Set up client callbacks
-    const self = this;
-    const client: acp.Client = {
-      async requestPermission(params) {
-        console.log('[ACP] Permission request:', JSON.stringify(params).slice(0, 200));
-        self.emit('permission_request', params);
-
-        // Wait for user response or auto-approve
-        if (self._allowAllTools) {
-          return { outcome: { outcome: 'approved' } };
-        }
-
-        // Emit and wait for approval
-        return new Promise((resolve) => {
-          const handler = (approved: boolean) => {
-            resolve({ outcome: { outcome: approved ? 'approved' : 'cancelled' } });
-          };
-          self.once('permission_response', handler);
-
-          // Timeout after 60s — cancel
-          setTimeout(() => {
-            self.off('permission_response', handler);
-            resolve({ outcome: { outcome: 'cancelled' } });
-          }, 60_000);
-        });
-      },
-
-      async sessionUpdate(params) {
-        const update = params.update;
-        self.handleSessionUpdate(update);
-      },
+    const config: SessionConfig = {
+      clientName: 'copilot-remote',
+      workingDirectory: this.cwd,
+      onPermissionRequest: this._allowAllTools
+        ? approveAll
+        : (req: PermissionRequest) => this.handlePermission(req),
     };
 
-    this.connection = new acp.ClientSideConnection((_agent) => client, stream);
+    if (this._model) config.model = this._model;
 
-    // Initialize connection
-    await this.connection.initialize({
-      protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
-
-    console.log('[ACP] Initialized');
-
-    // Create session
-    const sessionResult = await this.connection.newSession({
-      cwd: this.cwd,
-      mcpServers: [],
-    });
-
-    this.sessionId = sessionResult.sessionId;
+    this.session = await this.client.createSession(config);
     this._alive = true;
-    console.log('[ACP] Session created: ' + this.sessionId);
 
-    this.proc.on('exit', (code) => {
-      console.log('[ACP] Process exited: ' + code);
-      this._alive = false;
-      this._busy = false;
-      this.connection = null;
-      this.proc = null;
+    console.log('[SDK] Session created: ' + this.session.sessionId);
+
+    // Subscribe to all events
+    this.session.on((event: SessionEvent) => {
+      this.handleEvent(event);
     });
   }
 
-  private handleSessionUpdate(update: any): void {
-    const type = update.sessionUpdate;
-
-    switch (type) {
-      case 'agent_message_chunk': {
-        const content = update.content;
-        if (content?.type === 'text') {
-          this.emit('delta', content.text);
-        }
+  private handleEvent(event: SessionEvent): void {
+    switch (event.type) {
+      case 'assistant.message_delta':
+        this.emit('delta', (event.data as any).content ?? (event.data as any).text ?? '');
         break;
-      }
 
-      case 'agent_thought_chunk': {
-        const content = update.content;
-        if (content?.type === 'text' || typeof content?.text === 'string') {
-          this.emit('thinking', content.text);
-        }
+      case 'assistant.reasoning_delta':
+        this.emit('thinking', (event.data as any).content ?? (event.data as any).text ?? '');
         break;
-      }
 
-      case 'tool_call': {
-        console.log('[ACP] Tool call: ' + update.name);
+      case 'assistant.message':
+        this.emit('message', (event.data as any).content ?? '');
+        break;
+
+      case 'assistant.usage':
+        this.emit('usage', event.data);
+        break;
+
+      case 'tool.execution_start':
         this.emit('tool_start', {
-          toolCallId: update.toolCallId,
-          toolName: update.name,
-          arguments: update.arguments,
+          toolName: (event.data as any).name ?? (event.data as any).toolName,
+          arguments: (event.data as any).arguments,
         });
         break;
-      }
 
-      case 'tool_result': {
-        console.log('[ACP] Tool result: ' + update.toolCallId);
+      case 'tool.execution_complete':
         this.emit('tool_complete', {
-          toolCallId: update.toolCallId,
-          success: true,
+          toolName: (event.data as any).name ?? (event.data as any).toolName,
+          success: (event.data as any).exitCode === 0 || (event.data as any).success !== false,
+          duration: (event.data as any).duration,
         });
         break;
-      }
 
-      case 'plan': {
-        console.log('[ACP] Plan: ' + JSON.stringify(update).slice(0, 100));
-        this.emit('plan', update);
+      case 'permission.requested':
+        this.emit('permission_request', event.data);
         break;
-      }
 
-      default: {
-        console.log('[ACP] Update: ' + type + ' ' + JSON.stringify(update).slice(0, 200));
+      case 'session.idle':
+        this.emit('idle');
         break;
-      }
+
+      case 'session.error':
+        this.emit('error', (event.data as any).message ?? 'Unknown error');
+        break;
+
+      case 'session.model_change':
+        console.log('[SDK] Model changed: ' + JSON.stringify(event.data));
+        break;
+
+      case 'session.mode_changed':
+        this.emit('mode_changed', event.data);
+        break;
+
+      case 'subagent.started':
+        this.emit('subagent_start', event.data);
+        break;
+
+      case 'subagent.completed':
+        this.emit('subagent_complete', event.data);
+        break;
+
+      case 'session.title_changed':
+        this.emit('title', (event.data as any).title);
+        break;
+
+      default:
+        // Log for debugging
+        if (!event.ephemeral) {
+          console.log('[SDK] Event: ' + event.type);
+        }
+        break;
     }
+  }
+
+  private async handlePermission(req: PermissionRequest): Promise<any> {
+    console.log('[SDK] Permission request:', JSON.stringify(req).slice(0, 200));
+    this.emit('permission_request', req);
+
+    return new Promise((resolve) => {
+      const handler = (approved: boolean) => {
+        resolve({ outcome: approved ? 'approved' : 'cancelled' });
+      };
+      this.once('permission_response', handler);
+
+      // Timeout after 120s
+      setTimeout(() => {
+        this.off('permission_response', handler);
+        resolve({ outcome: 'cancelled' });
+      }, 120_000);
+    });
   }
 
   async send(prompt: string): Promise<CopilotMessage> {
-    if (!this._alive || !this.connection || !this.sessionId) {
+    if (!this._alive || !this.session) {
       throw new Error('Session not started');
     }
 
-    // Queue the message
     return new Promise((resolve, reject) => {
       this.messageQueue.push({ prompt, resolve, reject });
       this.processQueue();
@@ -208,37 +226,46 @@ export class CopilotSession extends EventEmitter {
     const { prompt, resolve, reject } = this.messageQueue.shift()!;
 
     try {
-      console.log('[ACP] Sending prompt: ' + prompt.slice(0, 80) + '...');
+      console.log('[SDK] Sending: ' + prompt.slice(0, 80) + (prompt.length > 80 ? '...' : ''));
 
       let responseText = '';
-      const originalDelta = this.listeners('delta');
+      const toolCalls: ToolCall[] = [];
+      let usage: UsageInfo | undefined;
 
-      // Collect deltas for final message
-      const deltaCollector = (text: string) => {
-        responseText += text;
+      const deltaHandler = (text: string) => { responseText += text; };
+      const usageHandler = (data: any) => {
+        usage = {
+          inputTokens: data.inputTokens ?? data.input_tokens,
+          outputTokens: data.outputTokens ?? data.output_tokens,
+          model: data.model,
+        };
       };
-      this.on('delta', deltaCollector);
 
-      const result = await this.connection!.prompt({
-        sessionId: this.sessionId!,
-        prompt: [{ type: 'text', text: prompt }],
-      });
+      this.on('delta', deltaHandler);
+      this.on('usage', usageHandler);
 
-      this.off('delta', deltaCollector);
+      const result = await this.session!.sendAndWait(
+        { prompt },
+        300_000, // 5 min timeout
+      );
 
-      console.log('[ACP] Prompt done: stopReason=' + result.stopReason);
+      this.off('delta', deltaHandler);
+      this.off('usage', usageHandler);
+
+      // Use result content if deltas didn't capture it
+      const finalContent = responseText.trim() || (result?.data as any)?.content || '';
 
       resolve({
-        messageId: this.sessionId!,
-        content: responseText.trim(),
-        toolRequests: [],
+        messageId: this.session!.sessionId,
+        content: finalContent,
+        toolCalls,
+        usage,
       });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
     } finally {
       this._busy = false;
       this.processing = false;
-      // Process next in queue
       if (this.messageQueue.length > 0) {
         this.processQueue();
       }
@@ -253,19 +280,44 @@ export class CopilotSession extends EventEmitter {
     this.emit('permission_response', false);
   }
 
-  cancel(): void {
-    // ACP supports cancellation — but need to check if SDK exposes it
-    // For now, kill and restart
-    console.log('[ACP] Cancel requested');
+  async abort(): Promise<void> {
+    if (this.session) {
+      await this.session.abort();
+    }
   }
 
-  kill(): void {
+  async setModel(model: string): Promise<void> {
+    this._model = model;
+    if (this.session) {
+      await this.session.setModel(model);
+    }
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    if (!this.client) return [];
+    return this.client.listModels();
+  }
+
+  async newSession(): Promise<void> {
+    if (this.session) {
+      await this.session.disconnect();
+    }
+    await this.createSession();
+  }
+
+  async kill(): Promise<void> {
     this._alive = false;
     this._busy = false;
     this.messageQueue = [];
-    this.proc?.kill('SIGTERM');
-    this.proc = null;
-    this.connection = null;
-    this.sessionId = null;
+
+    if (this.session) {
+      try { await this.session.disconnect(); } catch {}
+    }
+    if (this.client) {
+      try { await this.client.stop(); } catch {}
+    }
+
+    this.session = null;
+    this.client = null;
   }
 }

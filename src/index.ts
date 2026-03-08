@@ -1,11 +1,11 @@
 // ============================================================
 // Copilot Remote — Main Entry Point
 // ============================================================
-// Bridges Copilot CLI ↔ Telegram with JSONL streaming,
-// session continuity, and tool approval flows.
+// Bridges Copilot CLI ↔ Telegram via @github/copilot-sdk.
+// Full customization: agents, skills, MCP, prompt files.
 // ============================================================
 
-import { CopilotSession } from './session.js';
+import { Session } from './session.js';
 import { TelegramBridge } from './telegram.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   });
 
   // Per-chat state
-  const sessions = new Map<string, CopilotSession>();
+  const sessions = new Map<string, Session>();
   const chatWorkDirs = new Map<string, string>();
 
   // Per-chat config with defaults
@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     // Get or create session
     let session = sessions.get(chatId);
     if (!session || !session.alive) {
-      session = new CopilotSession();
+      session = new Session();
       const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
 
       try {
@@ -343,7 +343,7 @@ async function main(): Promise<void> {
         const existing = sessions.get(chatId);
         if (existing?.alive) existing.kill();
 
-        const session = new CopilotSession();
+        const session = new Session();
         try {
           await session.start({ cwd: workDir, binary: copilotBin });
           sessions.set(chatId, session);
@@ -372,7 +372,7 @@ async function main(): Promise<void> {
         if (session?.alive) session.kill();
 
         const workDir = chatWorkDirs.get(chatId) ?? config.workDir;
-        const newSession = new CopilotSession();
+        const newSession = new Session();
         try {
           await newSession.start({ cwd: workDir, binary: copilotBin });
           sessions.set(chatId, newSession);
