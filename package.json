@@ -1,24 +1,45 @@
 {
   "name": "copilot-remote",
-  "version": "0.1.0",
-  "description": "Control GitHub Copilot CLI from Telegram. Start local coding sessions, send prompts from your phone, get results back.",
+  "version": "0.3.0",
+  "description": "Control GitHub Copilot CLI from Telegram. Send prompts from your phone, get streamed responses with tool calls, session persistence, and model selection.",
+  "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "copilot-remote": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "postinstall": "node -e \"const fs=require('fs'),p=require('path'),d=p.join('node_modules','node-pty','prebuilds',process.platform+'-'+process.arch,'spawn-helper');fs.existsSync(d)&&fs.chmodSync(d,0o755)\"",
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/cli.js",
     "lint": "tsc --noEmit"
   },
   "keywords": [
     "copilot",
+    "github-copilot",
     "telegram",
     "remote",
     "cli",
-    "agent"
+    "agent",
+    "coding-agent",
+    "ai"
   ],
   "author": "tag-assistant",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tag-assistant/copilot-remote.git"
+  },
+  "homepage": "https://github.com/tag-assistant/copilot-remote#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "node-pty": "^1.1.0",
     "strip-ansi": "^7.1.0"
