@@ -543,6 +543,16 @@ async function main(): Promise<void> {
     session.on('notification', async (text: string) => {
       await client.sendMessage(chatId, '🔔 ' + text);
     });
+    session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
+      const msg = info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
+      await client.sendMessage(chatId, '⚠️ *SDK Error:* ' + msg);
+    });
+    session.on('hook:session_start', () => {
+      log.debug(`[hook] Session started for chat ${chatId}`);
+    });
+    session.on('hook:session_end', () => {
+      log.debug(`[hook] Session ended for chat ${chatId}`);
+    });
 
     const cleanup = () => {
       if (timer) {
@@ -980,35 +990,40 @@ async function main(): Promise<void> {
         await client.sendMessage(
           chatId,
           [
-            '⚡ *Copilot Remote*',
+            '⚡ *Copilot Remote* v' + version,
             '',
-            '*Session*',
+            '*💬 Session*',
             '`/new` — Fresh session',
             '`/stop` — Kill session',
-            '`/cd <dir>` — Change directory (restarts)',
+            '`/cd <dir>` — Change working directory',
             '`/status` — Model, mode, cwd, quota',
-            '`/compact` — Compress context',
+            '`/compact` — Compress context window',
+            '`/abort` — Cancel current request',
             '',
-            '*Modes*',
-            '`/plan [task]` — Plan mode (toggle or plan)',
-            '`/fleet [task]` — Parallel sub-agents',
+            '*🧠 Modes*',
+            '`/plan [task]` — Toggle plan mode or plan a task',
+            '`/fleet [task]` — Spawn parallel sub-agents',
             '',
-            '*Coding*',
+            '*💻 Coding*',
             '`/research <topic>` — Deep research',
-            '`/diff` — Uncommitted changes',
-            '`/review` — Code review',
+            '`/diff` — Show uncommitted changes',
+            '`/review` — Code review current changes',
             '`/init` — Generate copilot-instructions.md',
             '',
-            '*Tools*',
-            '`/agent [name]` — Switch agent',
+            '*🔧 Tools & Agents*',
+            '`/agent [name]` — Switch or list agents',
             '`/tools` — List available tools',
-            '`/files` — Browse workspace',
-            '`/usage` — Quota info',
+            '`/files` — Browse workspace files',
+            '`/usage` — Token quota info',
             '',
-            '*Other*',
-            '`/config` — Settings (model, mode, security, display)',
-            '`/abort` — Cancel current request',
-            '`/yes` `/no` — Approve/deny permission',
+            '*⚙️ Config*',
+            '`/config` — Settings menu (model, mode, security, display)',
+            '`/yes` `/no` — Approve/deny tool permission',
+            '',
+            '*📎 Tips*',
+            '• Send images, files, or voice messages',
+            '• Reply to a message to provide context',
+            '• Use topics for separate workspaces',
           ].join('\n'),
         );
         break;
