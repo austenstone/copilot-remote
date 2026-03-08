@@ -554,7 +554,7 @@ async function main(): Promise<void> {
         await client.editMessage(chatId, streamMsgId, final);
       } else if (streamMsgId) {
         // Response too long for single edit — delete stream msg, send fresh
-        await client.deleteMessage(chatId, streamMsgId).catch(() => {});
+        await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       } else {
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
