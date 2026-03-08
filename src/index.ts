@@ -1091,9 +1091,11 @@ async function main(): Promise<void> {
         }
         try {
           client.sendTyping(chatId);
+          
           const r = await s.compact();
           const info = contextInfoMap.get(chatId);
           const pct = info ? ' (' + Math.round((info.currentTokens / info.tokenLimit) * 100) + '% used)' : '';
+          client.setReaction(chatId, msgId, '✅').catch(() => {});
           await client.sendMessage(chatId, '🗜️ Compacted — ' + (r?.tokensFreed ?? 0) + ' tokens freed' + pct);
         } catch (e) {
           await client.sendMessage(chatId, '❌ ' + e);
