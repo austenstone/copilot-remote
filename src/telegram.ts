@@ -1,5 +1,5 @@
 // Copilot Remote — Telegram Client (grammY)
-import { Bot, type Context } from 'grammy';
+import { Bot, GrammyError, HttpError, type Context } from 'grammy';
 import { run, sequentialize, type RunnerHandle } from '@grammyjs/runner';
 import { apiThrottler } from '@grammyjs/transformer-throttler';
 import { autoRetry } from '@grammyjs/auto-retry';
@@ -62,7 +62,14 @@ export class TelegramClient implements Client {
     this.setupHandlers();
 
     this.bot.catch((err) => {
-      log.error('[Telegram] Unhandled error:', err.message);
+      const e = err.error;
+      if (e instanceof GrammyError) {
+        log.error('[Telegram] API error:', e.description);
+      } else if (e instanceof HttpError) {
+        log.error('[Telegram] Network error:', e.message);
+      } else {
+        log.error('[Telegram] Handler error:', e);
+      }
     });
   }
 
