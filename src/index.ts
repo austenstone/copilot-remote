@@ -579,10 +579,10 @@ async function main(): Promise<void> {
 
     const display = () => {
       const p: string[] = [];
-      if (intentText) p.push('🎯 *' + intentText + '*');
+      if (intentText) p.push('*' + intentText + '*');
       if (thinkingText && c.showThinking) {
         const italicLines = thinkingText.trim().split('\n').map(line => line.trim() ? '_' + line.replace(/_/g, '\\_') + '_' : '').join('\n');
-        p.push('Reasoning:\n' + italicLines);
+        p.push(italicLines);
       }
       if (toolLines.length) p.push(toolLines.join('\n'));
       if (activeToolStatus && !responseText) p.push('⏳ ' + activeToolStatus);

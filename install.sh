@@ -100,9 +100,8 @@ if [ "$HACKABLE" -eq 1 ]; then
         <string>$INSTALL_DIR/node_modules/.bin/tsx</string>
         <string>src/index.ts</string>"
 else
-  # Standard: run compiled JS via tsx loader for Node 24 ESM compat
+  # Standard: run compiled JS directly with Node
   PROG_ARGS="        <string>$NODE_BIN</string>
-        <string>$INSTALL_DIR/node_modules/.bin/tsx</string>
         <string>$INSTALL_DIR/dist/index.js</string>"
 fi
 EXTRA_ENV="        <key>LAUNCH_JOB_NAME</key>
@@ -187,11 +186,11 @@ elif command -v systemctl >/dev/null 2>&1; then
   UNIT_PATH="$HOME/.config/systemd/user/copilot-remote.service"
   mkdir -p "$(dirname "$UNIT_PATH")"
 
-  # Hackable: run TypeScript directly, standard: compiled JS
+  # Hackable: run TypeScript directly, standard: compiled JS via plain Node
   if [ "$HACKABLE" -eq 1 ]; then
     EXEC_START="$NODE_BIN $INSTALL_DIR/node_modules/.bin/tsx src/index.ts"
   else
-    EXEC_START="$NODE_BIN $INSTALL_DIR/node_modules/.bin/tsx $INSTALL_DIR/dist/index.js"
+    EXEC_START="$NODE_BIN $INSTALL_DIR/dist/index.js"
   fi
 
   cat > "$UNIT_PATH" << EOF
@@ -246,7 +245,7 @@ else
   else
     echo "    COPILOT_REMOTE_BOT_TOKEN='$COPILOT_REMOTE_BOT_TOKEN' \\"
     echo "    GITHUB_TOKEN='$GITHUB_TOKEN' \\"
-    echo "    node ~/.copilot-remote/dist/cli.js"
+    echo "    node ~/.copilot-remote/dist/index.js"
   fi
   echo ""
 fi
