@@ -312,7 +312,7 @@ export class TelegramClient implements Client {
       await this.raw['editMessageText']({
         chat_id: chatId, message_id: msgId, text: chunk.html, parse_mode: 'HTML',
       });
-    } catch (e) {
+    } catch {
       // HTML failed — try plain text
       try {
         await this.raw['editMessageText']({
@@ -375,7 +375,7 @@ export class TelegramClient implements Client {
 
   private draftDisabledChats = new Set<string>();
 
-  async sendDraft(chatId: string, draftId: number, text: string, threadId?: number): Promise<boolean> {
+  async sendDraft(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<boolean> {
     if (this.draftDisabledChats.has(chatId)) return false;
     try {
       const params: Record<string, unknown> = {
@@ -384,7 +384,8 @@ export class TelegramClient implements Client {
         text: markdownToHtml(text),
         parse_mode: 'HTML',
       };
-      if (threadId) params.message_thread_id = threadId;
+      if (opts?.threadId) params.message_thread_id = opts.threadId;
+      if (opts?.replyTo) params.reply_parameters = { message_id: opts.replyTo, allow_sending_without_reply: true };
       const resp = await fetch(
         `https://api.telegram.org/bot${this.config.botToken}/sendMessageDraft`,
         {

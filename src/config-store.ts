@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { log } from './log.js';
+import { resolveProviderConfig, type RemoteProviderConfig } from './provider-config.js';
 
 const CONFIG_DIR = join(process.env.HOME ?? '.', '.copilot-remote');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
@@ -31,12 +32,7 @@ export interface ChatConfig {
 /** Global config fields from config.json (not per-chat) */
 export interface GlobalConfig {
   cliUrl?: string;
-  provider?: {
-    type?: 'openai' | 'azure' | 'anthropic';
-    baseUrl: string;
-    apiKey?: string;
-    model?: string;
-  };
+  provider?: RemoteProviderConfig;
   mcpServers?: Record<string, unknown>;
   customAgents?: unknown[];
   skillDirectories?: string[];
@@ -139,10 +135,14 @@ export class ConfigStore {
       if (existsSync(CONFIG_FILE)) {
         const data = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
         log.info('[config] Loaded from', CONFIG_FILE);
-        this.rawFile = data;
+        this.rawFile = {
+          ...data,
+          ...(resolveProviderConfig(data.provider) ? { provider: resolveProviderConfig(data.provider) } : {}),
+        };
         return {
           ...DEFAULT_CONFIG,
           ...data,
+          model: process.env.COPILOT_REMOTE_MODEL ?? data.model ?? DEFAULT_CONFIG.model,
           messageMode: normalizeMessageMode(data.messageMode),
           autoApprove: { ...DEFAULT_CONFIG.autoApprove, ...(data.autoApprove ?? {}) },
         };
@@ -156,7 +156,7 @@ export class ConfigStore {
   private save(): void {
     try {
       if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
-      writeFileSync(CONFIG_FILE, JSON.stringify(this.global, null, 2));
+      writeFileSync(CONFIG_FILE, JSON.stringify({ ...this.rawFile, ...this.global }, null, 2));
       log.info('[config] Saved to', CONFIG_FILE);
     } catch (e) {
       log.error('[config] Failed to save:', e);

@@ -86,7 +86,7 @@ async function main() {
         name: 'sendDraft(topic payload only)',
         iterations: 150,
         run: async () => {
-          await client.sendDraft('-1001234567890', 1, longMarkdown, 77);
+          await client.sendDraft('-1001234567890', 1, longMarkdown, { threadId: 77 });
         },
       }),
     ]);

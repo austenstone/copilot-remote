@@ -28,7 +28,10 @@ describe('TelegramClient.sendDraft', () => {
       allowedUsers: [],
     });
 
-    const ok = await client.sendDraft('-1001234567890', 42, 'hello topic drafts', 99);
+    const ok = await client.sendDraft('-1001234567890', 42, 'hello topic drafts', {
+      threadId: 99,
+      replyTo: 7,
+    });
 
     assert.equal(ok, true);
     assert.equal(calls.length, 1);
@@ -39,11 +42,13 @@ describe('TelegramClient.sendDraft', () => {
       draft_id?: number;
       text?: string;
       message_thread_id?: number;
+      reply_parameters?: { message_id?: number; allow_sending_without_reply?: boolean };
     };
 
     assert.equal(payload.chat_id, '-1001234567890');
     assert.equal(payload.draft_id, 42);
     assert.equal(payload.message_thread_id, 99);
+    assert.deepEqual(payload.reply_parameters, { message_id: 7, allow_sending_without_reply: true });
     assert.equal(typeof payload.text, 'string');
     assert.ok((payload.text ?? '').includes('hello topic drafts'));
   });

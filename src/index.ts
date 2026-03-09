@@ -10,6 +10,8 @@ import { TelegramClient } from './telegram.js';
 import { SessionStore } from './store.js';
 import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { discoverAgents } from './agent-discovery.js';
+import { handleAgentCallback } from './agent-menu.js';
+import { handleCdCommand } from './cd-command.js';
 import { log } from './log.js';
 import {
   PROMPT_COMMANDS, TOOL_LABELS, LIFECYCLE_REACTIONS, PERM_ICONS,
@@ -199,9 +201,9 @@ async function main(): Promise<void> {
 
   if (client.sendDraft) {
     const origSendDraft = client.sendDraft.bind(client);
-    client.sendDraft = (key: string, draftId: number, text: string) => {
+    client.sendDraft = (key: string, draftId: number, text: string, opts?: MessageOptions) => {
       const [cid, tid] = resolveKey(key);
-      return origSendDraft(cid, draftId, text, tid);
+      return origSendDraft(cid, draftId, text, { ...opts, threadId: tid ?? opts?.threadId });
     };
   }
 
@@ -482,6 +484,7 @@ async function main(): Promise<void> {
   // ── Prompt handler (streaming + reactions) ──
   async function handlePrompt(chatId: string, msgId: number, prompt: string, attachments?: FileAttachment[]): Promise<void> {
     const turnStartedAt = performance.now();
+    const responseMessageOpts: MessageOptions = { disableLinkPreview: true, replyTo: msgId };
     let typingFails = 0;
     const MAX_TYPING_FAILS = 3;
     let typingInterval: NodeJS.Timeout | null = null;
@@ -539,7 +542,7 @@ async function main(): Promise<void> {
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
         const tgStart = performance.now();
-        const ok = await client.sendDraft(chatId, draftId, text);
+        const ok = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
         noteTelegramCall(tgStart, ok);
         if (ok) {
           placeholderPrimed = true;
@@ -550,7 +553,7 @@ async function main(): Promise<void> {
       }
 
       const tgStart = performance.now();
-      const sentMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+  const sentMsgId = await client.sendMessage(chatId, text, responseMessageOpts);
       noteTelegramCall(tgStart, sentMsgId !== null);
       streamMsgId = sentMsgId;
       placeholderPrimed = streamMsgId !== null;
@@ -575,12 +578,12 @@ async function main(): Promise<void> {
           sessionReadyAt = performance.now();
         } catch (err2: unknown) {
           if (typingInterval) clearInterval(typingInterval);
-          await client.sendMessage(chatId, '❌ Session failed: ' + ((err2 as Error)?.message ?? String(err2)));
+          await client.sendMessage(chatId, '❌ Session failed: ' + ((err2 as Error)?.message ?? String(err2)), { replyTo: msgId });
           return;
         }
       } else {
         if (typingInterval) clearInterval(typingInterval);
-        await client.sendMessage(chatId, '❌ Session failed: ' + msg);
+        await client.sendMessage(chatId, '❌ Session failed: ' + msg, { replyTo: msgId });
         return;
       }
     }
@@ -620,7 +623,7 @@ async function main(): Promise<void> {
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
         const tgStart = performance.now();
-        const ok = await client.sendDraft(chatId, draftId, text);
+        const ok = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
         noteTelegramCall(tgStart);
         if (ok) return;
         useDraft = false; // fall back to edit-in-place
@@ -633,7 +636,7 @@ async function main(): Promise<void> {
         sendingFirst = true;
         log.debug('[flush] sending first message, text:', text.length);
         const tgStart = performance.now();
-        const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+        const newMsgId = await client.sendMessage(chatId, text, responseMessageOpts);
         noteTelegramCall(tgStart, newMsgId !== null);
         log.debug('[flush] sendMessage returned:', newMsgId);
         sendingFirst = false;
@@ -824,7 +827,7 @@ async function main(): Promise<void> {
         : errMsg.includes('idle timeout') ? '⏱️ Session timed out (no activity for 2 min). Send a message to start fresh.'
         : errMsg.includes('timeout') ? '⏱️ Request timed out. Send a message to try again.'
         : '❌ `' + errMsg.slice(0, 200) + '`\nSend a message to start a new session.';
-      await client.sendMessage(chatId, userMsg);
+      await client.sendMessage(chatId, userMsg, { replyTo: msgId });
       return;
     }
     try {
@@ -847,12 +850,12 @@ async function main(): Promise<void> {
         log.debug('[finalize] multi-chunk: delete + resend');
         await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
         const tgStart = performance.now();
-        await client.sendMessage(chatId, final, { disableLinkPreview: true });
+        await client.sendMessage(chatId, final, responseMessageOpts);
         noteTelegramCall(tgStart, true);
       } else {
         log.debug('[finalize] no streamMsgId, sending fresh');
         const tgStart = performance.now();
-        await client.sendMessage(chatId, final, { disableLinkPreview: true });
+        await client.sendMessage(chatId, final, responseMessageOpts);
         noteTelegramCall(tgStart, true);
       }
       react(LIFECYCLE_REACTIONS.complete);
@@ -869,7 +872,7 @@ async function main(): Promise<void> {
       cleanup();
       if (typingInterval) clearInterval(typingInterval);
       react(LIFECYCLE_REACTIONS.error);
-      await client.sendMessage(chatId, '❌ ' + String(err));
+      await client.sendMessage(chatId, '❌ ' + String(err), { replyTo: msgId });
     }
   }
 
@@ -988,26 +991,7 @@ async function main(): Promise<void> {
         break;
       }
       case '/cd': {
-        if (!args[0]) {
-          await client.sendMessage(chatId, '📂 ' + workDir(chatId));
-          break;
-        }
-        const newDir = args[0].startsWith('~') ? args[0].replace('~', process.env.HOME ?? '/') : args[0];
-        if (!fs.existsSync(newDir)) {
-          await client.sendMessage(chatId, '❌ Directory not found: `' + newDir + '`');
-          break;
-        }
-        workDirs.set(chatId, newDir);
-        const oldSession = sessions.get(chatId);
-        if (oldSession?.alive) {
-          oldSession.kill();
-          sessions.delete(chatId);
-          await client.sendMessage(chatId, '📂 `' + newDir + '`\nRestarting session...');
-          await getSession(chatId);
-          await client.sendMessage(chatId, '✅ Ready in `' + newDir + '`');
-        } else {
-          await client.sendMessage(chatId, '📂 `' + newDir + '` — next session will start here.');
-        }
+        await handleCdCommand(args[0], chatId, { client, sessions, workDirs, getSession });
         break;
       }
       case '/sessions': {
@@ -1188,11 +1172,16 @@ async function main(): Promise<void> {
       case '/agent': {
         const s = sessions.get(chatId);
         if (!args[0]) {
+          const discoveredAgents = discoverAgents(workDir(chatId));
           // List available agents with buttons
           if (s?.alive) {
             try {
               const r = await s.listAgents();
-              const agents = r?.agents ?? [];
+              const listedAgents = r?.agents ?? [];
+              const mergedAgents = [
+                ...listedAgents,
+                ...discoveredAgents.filter((candidate) => !listedAgents.some((agent) => (agent.name ?? String(agent)) === candidate.name)),
+              ];
               const agentPfx = (d: string) => `@${chatId}|${d}`;
               // Also show current agent
               let currentName = '';
@@ -1200,15 +1189,15 @@ async function main(): Promise<void> {
                 const cur = await s.getCurrentAgent();
                 currentName = cur?.agent?.name ?? '';
               } catch { /* ignore */ }
-              if (!agents.length) {
+              if (!mergedAgents.length) {
                 await client.sendMessage(chatId, '🤖 No agents found.');
                 break;
               }
               const buttons: Button[][] = [];
-              for (let i = 0; i < agents.length; i += 2) {
+              for (let i = 0; i < mergedAgents.length; i += 2) {
                 const row: Button[] = [];
-                for (let j = i; j < Math.min(i + 2, agents.length); j++) {
-                  const a = agents[j];
+                for (let j = i; j < Math.min(i + 2, mergedAgents.length); j++) {
+                  const a = mergedAgents[j];
                   const name = a.name ?? String(a);
                   const label = name === currentName ? '✅ ' + name : name;
                   row.push({ text: label, data: agentPfx('agent:' + name) });
@@ -1223,9 +1212,13 @@ async function main(): Promise<void> {
               await client.sendMessage(chatId, '❌ ' + e);
             }
           } else {
-            // No active session — show configured custom agents from config
+            // No active session — show configured custom agents plus locally discovered repo agents
             const g = configStore.raw();
-            const custom = g.customAgents ?? [];
+            const configuredAgents = (g.customAgents ?? []) as Array<{ name?: string }>;
+            const custom = [
+              ...configuredAgents,
+              ...discoveredAgents.filter((candidate) => !configuredAgents.some((agent) => agent.name === candidate.name)),
+            ];
             if (custom.length) {
               const lines = custom.map((a: unknown) => {
                 const agent = a as { name?: string };
@@ -1687,6 +1680,7 @@ async function main(): Promise<void> {
     }
     // Delegate config-related callbacks to config-menu module
     if (await handleConfigCallback(data, chatId, msgId, callbackId, configMenuDeps)) return;
+    if (await handleAgentCallback(data, chatId, msgId, callbackId, { client, configStore, sessions, getSession })) return;
 
     // Handle user input responses (from ask_user tool)
     if (data.startsWith('input:')) {
