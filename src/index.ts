@@ -625,6 +625,9 @@ async function main(): Promise<void> {
     sendTypingSafe();
     const typingInterval = setInterval(() => sendTypingSafe(), 3000);
     const c = cfg(chatId);
+    const streamAllActivity = true;
+    const showThinking = streamAllActivity || c.showThinking;
+    const showTools = streamAllActivity || c.showTools;
     let streamMsgId: number | null = null;
     let draftId: number | null = null;
     let useDraft = !!client.sendDraft; // try draft mode if client supports it
@@ -661,7 +664,7 @@ async function main(): Promise<void> {
     const display = () => {
       const p: string[] = [];
       if (intentText) p.push('*' + intentText + '*');
-      if (thinkingText && c.showThinking) {
+      if (thinkingText && showThinking) {
         const italicLines = thinkingText.trim().split('\n').map(line => line.trim() ? '_' + line.replace(/_/g, '\\_') + '_' : '').join('\n');
         p.push(italicLines);
       }
@@ -907,7 +910,7 @@ async function main(): Promise<void> {
       noteFirstStreamEvent('thinking', text);
       thinkingLogText += text;
       logCopilotChunk('thinking', turnId, text);
-      if (!c.showThinking) return;
+      if (!showThinking) return;
       if (!thinkingText) react(LIFECYCLE_REACTIONS.thinking);
       thinkingText += text;
       schedEdit(); // thinking shows inline in the main streaming message
@@ -932,7 +935,7 @@ async function main(): Promise<void> {
       if (!ownsTurn(plan.turnId)) return;
       const summary = extractAssistantPlan(plan);
       if (summary.intentText && !intentText) intentText = summary.intentText;
-      if (summary.thinkingSummary && !responseText && c.showThinking) {
+      if (summary.thinkingSummary && !responseText && showThinking) {
         thinkingText = summary.thinkingSummary;
       }
       if (summary.activeToolStatus && !activeToolStatus) {
@@ -945,7 +948,7 @@ async function main(): Promise<void> {
     };
     const onThinkSummary = ({ turnId, text }: SessionStreamEvent) => {
       if (!ownsTurn(turnId)) return;
-      if (!c.showThinking || responseText) return;
+      if (!showThinking || responseText) return;
       const summary = text.trim();
       if (!summary) return;
       thinkingText = summary;
@@ -979,7 +982,7 @@ async function main(): Promise<void> {
       void materializeProgressSurface();
       schedEdit();
 
-      if (!c.showTools) return;
+      if (!showTools) return;
       const lineIndex = toolLines.push(statusSummary.statusLine) - 1;
       if (t.toolCallId) toolLineIndexByCallId.set(t.toolCallId, lineIndex);
       schedEdit();
@@ -988,7 +991,7 @@ async function main(): Promise<void> {
     const MAX_PARTIAL_LINES = 3;
     const onToolOutput = (t: { turnId?: string | null; toolCallId?: string; toolName: string; content: unknown }) => {
       if (!ownsTurn(t.turnId)) return;
-      if (!c.showTools) return;
+      if (!showTools) return;
       const text = typeof t.content === 'string' ? t.content : JSON.stringify(t.content ?? '');
       if (!text.trim()) return;
       const key = t.toolCallId ?? t.toolName;
@@ -1014,7 +1017,7 @@ async function main(): Promise<void> {
       const status = formatSubagentStatus(event);
       activeToolStatuses.set(event.toolCallId, status.statusLine);
       activeToolStatus = status.statusLine;
-      if (c.showTools && event.toolCallId) {
+      if (showTools && event.toolCallId) {
         const lineIndex = toolLineIndexByCallId.get(event.toolCallId);
         if (lineIndex !== undefined && lineIndex >= 0 && lineIndex < toolLines.length) {
           toolLines[lineIndex] = status.statusLine;
@@ -1040,7 +1043,7 @@ async function main(): Promise<void> {
       activeToolStatus = activeToolStatuses.current() || (activeToolCallIds.size === 0 && !responseText ? '🧠 Reviewing results' : '');
       sendTypingSafe(); // re-send typing (Telegram cancels on edit)
       if (t.toolName === 'report_intent' || t.toolName === 'ask_user') return;
-      if (!c.showTools || !toolLines.length) return;
+      if (!showTools || !toolLines.length) return;
       const lineIndex = t.toolCallId ? toolLineIndexByCallId.get(t.toolCallId) : undefined;
       const targetIndex = lineIndex ?? (toolLines.length - 1);
       if (targetIndex < 0 || targetIndex >= toolLines.length) return;
