@@ -23,18 +23,31 @@ type ApiCall = {
   payload: Record<string, unknown>;
 };
 
+type ApiResponder = (
+  method: string,
+  payload: Record<string, unknown>,
+) => unknown | undefined | Promise<unknown | undefined>;
+
 function getBot(client: TelegramClient): Bot {
   return (client as unknown as { bot: Bot }).bot;
 }
 
-async function createTelegramHarness(client: TelegramClient): Promise<{ bot: Bot; calls: ApiCall[] }> {
+async function createTelegramHarness(
+  client: TelegramClient,
+  responder?: ApiResponder,
+): Promise<{ bot: Bot; calls: ApiCall[] }> {
   const bot = getBot(client);
   const calls: ApiCall[] = [];
   bot.botInfo = TEST_BOT_INFO;
 
-  bot.api.config.use((_prev, method, payload) => {
+  bot.api.config.use(async (_prev, method, payload) => {
     const normalizedPayload = (payload ?? {}) as Record<string, unknown>;
     calls.push({ method, payload: normalizedPayload });
+
+    const override = await responder?.(method, normalizedPayload);
+    if (override !== undefined) {
+      return override as ReturnType<typeof _prev>;
+    }
 
     switch (method) {
       case 'sendMessage':
@@ -204,6 +217,49 @@ describe('TelegramClient.sendDraft', () => {
 });
 
 describe('TelegramClient grammY-style adapter tests', () => {
+  it('falls back to plain text when sendMessage HTML rendering fails', async () => {
+    const client = new TelegramClient({
+      botToken: 'test-token',
+      allowedUsers: [],
+    });
+    const { calls } = await createTelegramHarness(client, (method, payload) => {
+      if (method === 'sendMessage' && payload.parse_mode === 'HTML') {
+        throw new Error('HTML exploded');
+      }
+      return undefined;
+    });
+
+    const messageId = await client.sendMessage('123', '**bold**');
+
+    assert.equal(messageId, 1);
+    const sendCalls = calls.filter((call) => call.method === 'sendMessage');
+    assert.equal(sendCalls.length, 2);
+    assert.equal(sendCalls[0]?.payload.parse_mode, 'HTML');
+    assert.equal(sendCalls[1]?.payload.parse_mode, undefined);
+    assert.equal(sendCalls[1]?.payload.text, 'bold');
+  });
+
+  it('falls back to plain text when editMessage HTML rendering fails', async () => {
+    const client = new TelegramClient({
+      botToken: 'test-token',
+      allowedUsers: [],
+    });
+    const { calls } = await createTelegramHarness(client, (method, payload) => {
+      if (method === 'editMessageText' && payload.parse_mode === 'HTML') {
+        throw new Error('HTML exploded');
+      }
+      return undefined;
+    });
+
+    await client.editMessage('123', 7, '**bold**');
+
+    const editCalls = calls.filter((call) => call.method === 'editMessageText');
+    assert.equal(editCalls.length, 2);
+    assert.equal(editCalls[0]?.payload.parse_mode, 'HTML');
+    assert.equal(editCalls[1]?.payload.parse_mode, undefined);
+    assert.equal(editCalls[1]?.payload.text, 'bold');
+  });
+
   it('maps a real text update into onMessage callback arguments', async () => {
     const client = new TelegramClient({
       botToken: 'test-token',
@@ -289,6 +345,51 @@ describe('TelegramClient grammY-style adapter tests', () => {
     assert.ok(calls.some((call) => call.method === 'answerCallbackQuery'));
   });
 
+  it('uses mapped thread fallback for callback queries with inaccessible messages', async () => {
+    const client = new TelegramClient({
+      botToken: 'test-token',
+      allowedUsers: ['1'],
+    });
+    const { bot } = await createTelegramHarness(client);
+
+    const messageId = await client.sendButtons(
+      '123',
+      'Choose an agent',
+      [[{ text: 'Notes', data: 'agent:notes' }]],
+      77,
+    );
+
+    let seenThreadId: number | undefined;
+    client.onCallback = async (_callbackId, _data, _chatId, _msgId, threadId) => {
+      seenThreadId = threadId;
+    };
+
+    await bot.handleUpdate({
+      update_id: 3,
+      callback_query: {
+        id: 'callback-2',
+        chat_instance: 'chat-instance-2',
+        from: {
+          id: 1,
+          is_bot: false,
+          first_name: 'Tester',
+        },
+        data: 'agent:notes',
+        message: {
+          message_id: messageId ?? 1,
+          date: 0,
+          chat: {
+            id: 123,
+            type: 'supergroup',
+            title: 'Debug Topic',
+          },
+        },
+      },
+    } as unknown as Update);
+
+    assert.equal(seenThreadId, 77);
+  });
+
   it('captures outbound sendButtons payloads through grammY api interception', async () => {
     const client = new TelegramClient({
       botToken: 'test-token',
@@ -334,5 +435,38 @@ describe('TelegramClient grammY-style adapter tests', () => {
     assert.deepEqual(sendMessageCall?.payload.reply_markup, {
       inline_keyboard: [[{ text: 'Approve', callback_data: 'perm:yes' }]],
     });
+  });
+});
+
+describe('TelegramClient draft failure handling', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('disables sendDraft only for the failing chat', async () => {
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      calls.push(String(input));
+      return {
+        json: async () => ({ ok: false, description: 'unknown method' }),
+      } as Response;
+    }) as typeof fetch;
+
+    const client = new TelegramClient({
+      botToken: 'test-token',
+      allowedUsers: [],
+    });
+
+    const first = await client.sendDraft('chat-1', 1, 'hello');
+    const secondSameChat = await client.sendDraft('chat-1', 2, 'hello again');
+    const otherChat = await client.sendDraft('chat-2', 3, 'hello other chat');
+
+    assert.equal(first, false);
+    assert.equal(secondSameChat, false);
+    assert.equal(otherChat, false);
+    assert.equal(calls.length, 2);
   });
 });
