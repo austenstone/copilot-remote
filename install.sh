@@ -141,6 +141,8 @@ $PROG_ARGS
         <string>$(dirname "$NODE_BIN"):$(dirname "$COPILOT_BIN"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>$HOME</string>
+        <key>NODE_OPTIONS</key>
+        <string>--experimental-sqlite</string>
 $EXTRA_ENV
     </dict>
     <key>RunAtLoad</key>

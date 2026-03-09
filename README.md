@@ -40,7 +40,7 @@ If you want Bring Your Own Key (BYOK), configure `provider` in `~/.copilot-remot
 ## Requirements
 
 - A local Copilot session environment that is already authenticated and able to run on this machine
-- Node.js ≥ 20
+- Node.js ≥ 22 (LTS)
 - `gh` CLI authenticated (`gh auth login`)
 - GitHub account with Copilot license
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
