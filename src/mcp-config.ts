@@ -221,12 +221,19 @@ export function loadMcpServers(
   // Expand remaining env vars
   const envExpanded = deepExpandEnv(expanded);
 
-  // Coerce to typed configs
+  // Coerce to typed configs and set cwd for local servers with relative paths
   const merged: Record<string, MCPServerConfig> = {};
   const sources: McpConfigSource[] = [];
   for (const [name, cfg] of Object.entries(envExpanded)) {
     try {
-      merged[name] = coerceServerConfig(cfg);
+      const coerced = coerceServerConfig(cfg);
+      // Set cwd to workDir for local servers that don't have one
+      // so relative command/arg paths resolve correctly
+      if (workDir && coerced.type !== 'http' && coerced.type !== 'sse') {
+        const local = coerced as MCPLocalServerConfig;
+        if (!local.cwd) local.cwd = workDir;
+      }
+      merged[name] = coerced;
     } catch (e) {
       log.debug(`Skipping invalid MCP server "${name}":`, e);
     }
