@@ -56,6 +56,7 @@ function createDeps(initialConfig?: Partial<ChatConfig>) {
     workDir: () => '/tmp/project',
     bin: 'copilot',
     getSession: async () => ({ alive: true }),
+    purgeSessionPersistence: async () => {},
   };
 
   return { state, deps };

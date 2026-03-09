@@ -30,6 +30,7 @@ export interface ChatConfig {
 
 /** Global config fields from config.json (not per-chat) */
 export interface GlobalConfig {
+  cliUrl?: string;
   provider?: {
     type?: 'openai' | 'azure' | 'anthropic';
     baseUrl: string;

@@ -1,6 +1,7 @@
 // Copilot Remote — Session store backed by shared Copilot CLI SQLite database
 // Uses ~/.copilot/session-store.db for session metadata (shared with CLI)
-// Keeps a thin chatId→sessionId mapping in ~/.copilot-remote/chat-sessions.json
+// Uses deterministic Telegram-derived session IDs by default.
+// Keeps ~/.copilot-remote/chat-sessions.json only for legacy migrations/fallback mappings.
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { DatabaseSync } from 'node:sqlite';
@@ -31,6 +32,20 @@ export class SessionStore {
   private chatMap: Record<string, { sessionId: string; model: string }> = {};
   private db: DatabaseSync | null = null;
 
+  static deterministicSessionId(chatId: string): string {
+    const [chatPart, threadPart] = chatId.split(':');
+    return threadPart ? `telegram-${chatPart}-thread-${threadPart}` : `telegram-${chatPart}`;
+  }
+
+  static sessionKeyFromSessionId(sessionId: string): string | null {
+    if (!sessionId.startsWith('telegram-')) return null;
+    const encoded = sessionId.slice('telegram-'.length);
+    const threadMarker = '-thread-';
+    const threadIdx = encoded.lastIndexOf(threadMarker);
+    if (threadIdx === -1) return encoded;
+    return `${encoded.slice(0, threadIdx)}:${encoded.slice(threadIdx + threadMarker.length)}`;
+  }
+
   constructor() {
     this.loadChatMap();
     this.openDb();
@@ -49,20 +64,38 @@ export class SessionStore {
 
   /** Get the session entry for a chat */
   get(chatId: string): SessionEntry | undefined {
-    const mapping = this.chatMap[chatId];
-    if (!mapping) return undefined;
-    const row = this.getDbSession(mapping.sessionId);
-    return {
-      sessionId: mapping.sessionId,
-      cwd: row?.cwd ?? '',
-      model: mapping.model,
-      createdAt: row ? new Date(row.created_at).getTime() : 0,
-      lastUsed: row ? new Date(row.updated_at).getTime() : 0,
-    };
+    return this.getResumeCandidates(chatId)[0];
+  }
+
+  /** Get resumable sessions for a chat, preferring the deterministic session ID. */
+  getResumeCandidates(chatId: string): SessionEntry[] {
+    const deterministicId = SessionStore.deterministicSessionId(chatId);
+    const legacyId = this.chatMap[chatId]?.sessionId;
+    const model = this.chatMap[chatId]?.model ?? '';
+    const candidates = [deterministicId, ...(legacyId && legacyId !== deterministicId ? [legacyId] : [])];
+
+    return candidates
+      .map((sessionId) => this.getExistingEntry(sessionId, model))
+      .filter((entry): entry is SessionEntry => !!entry);
+  }
+
+  /** All known candidate session IDs for a chat, deterministic first. */
+  getSessionIds(chatId: string): string[] {
+    const deterministicId = SessionStore.deterministicSessionId(chatId);
+    const legacyId = this.chatMap[chatId]?.sessionId;
+    return [...new Set([deterministicId, ...(legacyId && legacyId !== deterministicId ? [legacyId] : [])])];
   }
 
   /** Map a chat to a session */
   set(chatId: string, entry: SessionEntry): void {
+    const deterministicId = SessionStore.deterministicSessionId(chatId);
+    if (entry.sessionId === deterministicId) {
+      if (this.chatMap[chatId]) {
+        delete this.chatMap[chatId];
+        this.saveChatMap();
+      }
+      return;
+    }
     this.chatMap[chatId] = { sessionId: entry.sessionId, model: entry.model };
     this.saveChatMap();
   }
@@ -89,7 +122,7 @@ export class SessionStore {
         reverseMap[m.sessionId] = chatId;
       }
       return rows.map(row => {
-        const chatId = reverseMap[row.id] ?? row.id;
+        const chatId = reverseMap[row.id] ?? SessionStore.sessionKeyFromSessionId(row.id) ?? row.id;
         return [chatId, {
           sessionId: row.id,
           cwd: row.cwd ?? '',
@@ -142,6 +175,18 @@ export class SessionStore {
     try {
       return this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as unknown as DbSession | undefined;
     } catch { return undefined; }
+  }
+
+  private getExistingEntry(sessionId: string, model = ''): SessionEntry | undefined {
+    const row = this.getDbSession(sessionId);
+    if (!row) return undefined;
+    return {
+      sessionId,
+      cwd: row.cwd ?? '',
+      model,
+      createdAt: new Date(row.created_at).getTime(),
+      lastUsed: new Date(row.updated_at).getTime(),
+    };
   }
 
   private legacyList(): [string, SessionEntry][] {

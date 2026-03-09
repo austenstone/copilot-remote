@@ -201,4 +201,69 @@ describe('Session', () => {
       images: ['base64-image-1', 'base64-image-2'],
     });
   });
+
+  it('prewarmSharedClient delegates to the shared client bootstrap path', async () => {
+    const originalGetSharedClient = (Session as any).getSharedClient;
+    const seen: Array<Record<string, unknown> | undefined> = [];
+
+    (Session as any).getSharedClient = async (opts?: Record<string, unknown>, retain?: boolean) => {
+      seen.push({ ...(opts ?? {}), retain });
+      return {};
+    };
+
+    try {
+      await Session.prewarmSharedClient({ binary: 'copilot', githubToken: 'token-123' });
+    } finally {
+      (Session as any).getSharedClient = originalGetSharedClient;
+    }
+
+    assert.deepEqual(seen, [{ binary: 'copilot', githubToken: 'token-123', retain: false }]);
+  });
+
+  it('builds external-server client options when cliUrl is provided', () => {
+    const clientOpts = (Session as any).buildSharedClientOptions({
+      binary: 'copilot',
+      cliUrl: 'http://127.0.0.1:4141',
+      githubToken: 'token-123',
+    });
+
+    assert.deepEqual(clientOpts, {
+      cliUrl: 'http://127.0.0.1:4141',
+    });
+  });
+
+  it('includes a custom sessionId in the SDK session config', () => {
+    const session = new Session() as any;
+    session.cwd = '/tmp/project';
+
+    const config = session.buildConfig({
+      cwd: '/tmp/project',
+      sessionId: 'telegram--100123-thread-42',
+      autopilot: false,
+    });
+
+    assert.equal(config.sessionId, 'telegram--100123-thread-42');
+  });
+
+  it('deletePersistedSession uses the shared client without retaining it', async () => {
+    const originalGetSharedClient = (Session as any).getSharedClient;
+    const deleted: string[] = [];
+
+    (Session as any).getSharedClient = async (_opts?: Record<string, unknown>, retain?: boolean) => {
+      assert.equal(retain, false);
+      return {
+        async deleteSession(sessionId: string) {
+          deleted.push(sessionId);
+        },
+      };
+    };
+
+    try {
+      await Session.deletePersistedSession('telegram--100123-thread-42', { binary: 'copilot' });
+    } finally {
+      (Session as any).getSharedClient = originalGetSharedClient;
+    }
+
+    assert.deepEqual(deleted, ['telegram--100123-thread-42']);
+  });
 });

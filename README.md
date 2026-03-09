@@ -14,6 +14,8 @@ On first run, you'll be prompted for your Telegram bot token (get one from [@Bot
 
 GitHub auth is auto-detected from `gh auth login`. If the logged-in account doesn't have a Copilot license, set `githubToken` in config or `GITHUB_TOKEN` env.
 
+If you already run a headless Copilot CLI server, set `cliUrl` in config or `COPILOT_REMOTE_CLI_URL` and the bridge will connect to it instead of spawning its own CLI process.
+
 ## Features
 
 - **Streaming** — edit-in-place responses with typing indicators
@@ -27,7 +29,7 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 - **Voice messages** — transcribed and forwarded to Copilot
 - **Photos & documents** — sent as context
 - **Infinite sessions** — automatic context compaction, no token limit crashes
-- **Session persistence** — survives restarts
+- **Session persistence** — deterministic Telegram chat/topic session IDs survive restarts and line up cleanly with CLI resume
 - **Custom agents** — use workspace `.copilot/agents/` definitions
 - **Custom tools** — Copilot can send you Telegram notifications
 
@@ -60,6 +62,7 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
   "githubToken": "ghp_...",
   "workDir": "/home/user/projects",
   "copilotBinary": "/path/to/copilot",
+  "cliUrl": "http://127.0.0.1:4141",
   "allowedUsers": ["123456789"],
   "model": "claude-sonnet-4",
   "mode": "interactive",
@@ -75,7 +78,16 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 }
 ```
 
-Only `botToken` is required. Everything else has sensible defaults.
+Only `botToken` is required. If you are not using `cliUrl`, you also need GitHub auth via `gh auth login` or `GITHUB_TOKEN`.
+
+`cliUrl` connects to an already-running headless Copilot CLI server. When set, `copilot-remote` does not spawn its own CLI process and does not pass `GITHUB_TOKEN` through to the SDK client.
+
+Example external server flow:
+
+```bash
+copilot --headless --port 4141
+COPILOT_REMOTE_CLI_URL=http://127.0.0.1:4141 npx copilot-remote
+```
 
 `messageMode` controls what happens if you send another Telegram message while Copilot is still working:
 
@@ -109,6 +121,17 @@ src/
 ```
 
 Built on [grammY](https://grammy.dev) with auto-retry, hydrate, and parse-mode plugins.
+
+## Session IDs
+
+By default, each Telegram chat or forum topic maps to a deterministic Copilot session ID:
+
+- DM/chat: `telegram-<chatId>`
+- forum topic: `telegram-<chatId>-thread-<threadId>`
+
+That makes persistence and debugging a lot less mysterious, and it plays nicely with Copilot CLI resume flows.
+
+The old `~/.copilot-remote/chat-sessions.json` file is now legacy-only. It is still read for migration/fallback, but deterministic session IDs are the default path.
 
 ## Running as a Service (macOS)
 

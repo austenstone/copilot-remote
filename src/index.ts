@@ -48,14 +48,19 @@ function loadConfig() {
   const args = process.argv.slice(2);
   const botTokenIdx = args.indexOf('--bot-token');
   const botTokenArg = botTokenIdx >= 0 ? args[botTokenIdx + 1] : undefined;
+  const cliUrlIdx = args.indexOf('--cli-url');
+  const cliUrlArg = cliUrlIdx >= 0 ? args[cliUrlIdx + 1] : undefined;
 
   const botToken = botTokenArg ?? file.botToken ?? process.env.COPILOT_REMOTE_BOT_TOKEN;
+  const cliUrl = cliUrlArg ?? file.cliUrl ?? process.env.COPILOT_REMOTE_CLI_URL;
+  const githubToken = cliUrl ? undefined : (file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken());
   return {
     botToken,
     allowedUsers: file.allowedUsers ?? process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
     workDir: file.workDir ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
     copilotBinary: file.copilotBinary ?? process.env.COPILOT_REMOTE_BINARY,
-    githubToken: file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken(),
+    cliUrl,
+    githubToken,
     profilePhoto: file.profilePhoto,
     _cfgPath: cfgPath ?? homeCfg,
     _file: file,
@@ -109,12 +114,22 @@ async function main(): Promise<void> {
   const botToken = await ensureBotToken(config);
   const bin = config.copilotBinary ?? findBin('copilot');
 
-  log.info('⚡ Copilot Remote v' + version + ' | dir: ' + config.workDir);
+  log.info(
+    '⚡ Copilot Remote v' + version +
+    ' | dir: ' + config.workDir +
+    (config.cliUrl ? ' | cli: ' + config.cliUrl : ' | cli: stdio'),
+  );
 
   const client: Client = new TelegramClient({
     botToken,
     allowedUsers: config.allowedUsers,
     profilePhoto: config.profilePhoto,
+  });
+
+  void Session.prewarmSharedClient({ binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken }).then(() => {
+    log.info('Prewarmed Copilot client');
+  }).catch((e) => {
+    log.debug('Copilot client prewarm failed:', e);
   });
 
   // ── Per-chat state ──
@@ -199,6 +214,25 @@ async function main(): Promise<void> {
   }
 
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
+
+  async function purgeSessionPersistence(chatId: string, explicitSessionId?: string): Promise<void> {
+    const ids = [...new Set([...(explicitSessionId ? [explicitSessionId] : []), ...sessionStore.getSessionIds(chatId)])];
+    await Promise.allSettled(
+      ids.map(async (sessionId) => {
+        try {
+          await Session.deletePersistedSession(sessionId, {
+            binary: bin,
+            cliUrl: config.cliUrl,
+            githubToken: config.githubToken,
+          });
+          log.info('Purged persisted session', sessionId, 'for', chatId);
+        } catch (e) {
+          log.debug('Failed to purge persisted session', sessionId, 'for', chatId, e);
+        }
+      }),
+    );
+    sessionStore.delete(chatId);
+  }
 
   // Get or create session
   // Register persistent listeners on a session (called once per session, not per message)
@@ -327,11 +361,14 @@ async function main(): Promise<void> {
     if (s?.alive) return s;
 
     s = new Session();
+    const deterministicSessionId = SessionStore.deterministicSessionId(chatId);
     const c = cfg(chatId);
     const globalCfg = configStore.raw();
     const opts = {
       cwd: workDir(chatId),
+      sessionId: deterministicSessionId,
       binary: bin,
+      cliUrl: config.cliUrl,
       model: c.model,
       autopilot: c.autopilot,
       reasoningEffort: c.reasoningEffort ? (c.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh') : undefined,
@@ -390,9 +427,8 @@ async function main(): Promise<void> {
         : undefined,
     };
 
-    // Try to resume a saved session
-    const saved = sessionStore.get(chatId);
-    if (saved?.sessionId) {
+    // Try to resume an existing session, preferring the deterministic Telegram-derived ID.
+    for (const saved of sessionStore.getResumeCandidates(chatId)) {
       // Restore working directory from session DB
       if (saved.cwd && saved.cwd !== config.workDir) {
         workDirs.set(chatId, saved.cwd);
@@ -406,12 +442,14 @@ async function main(): Promise<void> {
         log.info('Resumed session', saved.sessionId, 'for', chatId);
         return s;
       } catch (e) {
-        log.debug('Resume failed, creating new:', e);
-        sessionStore.delete(chatId);
+        log.debug('Resume failed for', saved.sessionId, '— trying next candidate/new session:', e);
+        if (saved.sessionId !== deterministicSessionId) {
+          sessionStore.delete(chatId);
+        }
       }
     }
 
-    // Create new session
+    // Create new session with a deterministic ID derived from chatId[:threadId].
     await s.start(opts);
     if (s.sessionId) {
       sessionStore.set(chatId, {
@@ -438,13 +476,22 @@ async function main(): Promise<void> {
     workDir: (id: string) => workDir(id),
     bin,
     getSession,
+    purgeSessionPersistence,
   };
 
   // ── Prompt handler (streaming + reactions) ──
   async function handlePrompt(chatId: string, msgId: number, prompt: string, attachments?: FileAttachment[]): Promise<void> {
     const turnStartedAt = performance.now();
+    let typingFails = 0;
+    const MAX_TYPING_FAILS = 3;
+    let typingInterval: NodeJS.Timeout | null = null;
+    const sendTypingSafe = () => {
+      if (typingFails >= MAX_TYPING_FAILS) return;
+      client.sendTyping(chatId).catch(() => { typingFails++; });
+    };
     // Show typing immediately — session creation can take seconds
-    client.sendTyping(chatId);
+    sendTypingSafe();
+    typingInterval = setInterval(() => sendTypingSafe(), 3000);
     const c = cfg(chatId);
     let streamMsgId: number | null = null;
     let draftId: number | null = null;
@@ -453,7 +500,7 @@ async function main(): Promise<void> {
       responseText = '';
     let intentText = '';
     const toolLines: string[] = [];
-    let activeToolStatus = 'Connecting to Copilot…';
+    let activeToolStatus = '';
     let lastEdit = 0,
       timer: NodeJS.Timeout | null = null;
     const THROTTLE = useDraft ? 120 : 180; // keep updates snappy without spamming Telegram
@@ -465,10 +512,10 @@ async function main(): Promise<void> {
     let telegramApiCalls = 0;
     let telegramApiMs = 0;
 
-    const noteTelegramCall = (startedAt: number) => {
+    const noteTelegramCall = (startedAt: number, visible = false) => {
       telegramApiCalls++;
       telegramApiMs += performance.now() - startedAt;
-      if (firstVisibleAt === null) firstVisibleAt = performance.now();
+      if (visible && firstVisibleAt === null) firstVisibleAt = performance.now();
     };
 
     const display = () => {
@@ -488,14 +535,14 @@ async function main(): Promise<void> {
       if (placeholderPrimed) return;
       const text = display();
       if (!text.trim()) return;
-      placeholderPrimed = true;
 
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
         const tgStart = performance.now();
         const ok = await client.sendDraft(chatId, draftId, text);
-        noteTelegramCall(tgStart);
+        noteTelegramCall(tgStart, ok);
         if (ok) {
+          placeholderPrimed = true;
           log.debug('Stream: primed draft', draftId, 'for', chatId);
           return;
         }
@@ -503,8 +550,10 @@ async function main(): Promise<void> {
       }
 
       const tgStart = performance.now();
-      streamMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
-      noteTelegramCall(tgStart);
+      const sentMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+      noteTelegramCall(tgStart, sentMsgId !== null);
+      streamMsgId = sentMsgId;
+      placeholderPrimed = streamMsgId !== null;
       log.debug('Stream: primed message', streamMsgId, 'for', chatId);
     };
 
@@ -525,10 +574,12 @@ async function main(): Promise<void> {
           session = await getSession(chatId);
           sessionReadyAt = performance.now();
         } catch (err2: unknown) {
+          if (typingInterval) clearInterval(typingInterval);
           await client.sendMessage(chatId, '❌ Session failed: ' + ((err2 as Error)?.message ?? String(err2)));
           return;
         }
       } else {
+        if (typingInterval) clearInterval(typingInterval);
         await client.sendMessage(chatId, '❌ Session failed: ' + msg);
         return;
       }
@@ -548,19 +599,10 @@ async function main(): Promise<void> {
       return;
     }
     client.sendTyping(chatId);
-    activeToolStatus = 'Waiting for Copilot…';
     await primeStreamSurface();
     const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).then(() => sendTypingSafe()).catch(() => {}); } : () => {};
     react(LIFECYCLE_REACTIONS.received);
-    // Typing keepalive — same pattern as OpenClaw: 3s interval + TTL safety + failure guard
-    let typingFails = 0;
-    const MAX_TYPING_FAILS = 3;
-    const sendTypingSafe = () => {
-      if (typingFails >= MAX_TYPING_FAILS) return; // tripped — stop trying
-      client.sendTyping(chatId).catch(() => { typingFails++; });
-    };
     sendTypingSafe();
-    const typingInterval = setInterval(() => sendTypingSafe(), 3000);
 
     // Minimum chars before sending first streaming message.
     // Prevents premature push notifications (user sees "I" before the full sentence).
@@ -592,7 +634,7 @@ async function main(): Promise<void> {
         log.debug('[flush] sending first message, text:', text.length);
         const tgStart = performance.now();
         const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
-        noteTelegramCall(tgStart);
+        noteTelegramCall(tgStart, newMsgId !== null);
         log.debug('[flush] sendMessage returned:', newMsgId);
         sendingFirst = false;
         streamMsgId = newMsgId;
@@ -607,7 +649,7 @@ async function main(): Promise<void> {
           ? tc.editMessageRaw.call(client, cid, streamMsgId, text)
           : client.editMessage(chatId, streamMsgId, text);
         editPromise.then(() => {
-          noteTelegramCall(tgStart);
+          noteTelegramCall(tgStart, true);
           sendTypingSafe();
         }).catch((e) => { log.debug('Stream edit failed:', e); });
       }
@@ -771,11 +813,11 @@ async function main(): Promise<void> {
       res = await session.send(prompt, attachments);
     } catch (sendErr) {
       cleanup();
-      clearInterval(typingInterval);
+      if (typingInterval) clearInterval(typingInterval);
       // Kill the broken session so it doesn't linger
       try { session.kill(); } catch { /* ignore */ }
       sessions.delete(chatId);
-      sessionStore.delete(chatId);
+      await purgeSessionPersistence(chatId, session.sessionId ?? undefined);
       const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
       react(LIFECYCLE_REACTIONS.error);
       const userMsg = errMsg.includes('STREAM_DESTROYED') ? '💀 Lost connection to Copilot. Send a message to reconnect.'
@@ -787,7 +829,7 @@ async function main(): Promise<void> {
     }
     try {
       cleanup();
-      clearInterval(typingInterval);
+      if (typingInterval) clearInterval(typingInterval);
 
       const final = res.content;
       log.debug('[finalize] streamMsgId:', streamMsgId, 'final length:', final.length);
@@ -799,19 +841,19 @@ async function main(): Promise<void> {
         log.debug('[finalize] materialize edit msgId:', streamMsgId);
         const tgStart = performance.now();
         await client.editMessage(chatId, streamMsgId, final);
-        noteTelegramCall(tgStart);
+        noteTelegramCall(tgStart, true);
       } else if (streamMsgId) {
         // Multi-chunk — must delete stream msg and send fresh (can't edit into multiple messages)
         log.debug('[finalize] multi-chunk: delete + resend');
         await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
         const tgStart = performance.now();
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
-        noteTelegramCall(tgStart);
+        noteTelegramCall(tgStart, true);
       } else {
         log.debug('[finalize] no streamMsgId, sending fresh');
         const tgStart = performance.now();
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
-        noteTelegramCall(tgStart);
+        noteTelegramCall(tgStart, true);
       }
       react(LIFECYCLE_REACTIONS.complete);
       log.info(
@@ -825,7 +867,7 @@ async function main(): Promise<void> {
     } catch (err) {
       log.error('[finalize] error:', err);
       cleanup();
-      clearInterval(typingInterval);
+      if (typingInterval) clearInterval(typingInterval);
       react(LIFECYCLE_REACTIONS.error);
       await client.sendMessage(chatId, '❌ ' + String(err));
     }
@@ -910,7 +952,7 @@ async function main(): Promise<void> {
         const old = sessions.get(chatId);
         if (old?.alive) old.kill();
         sessions.delete(chatId);
-        sessionStore.delete(chatId); // Don't resume old session
+        await purgeSessionPersistence(chatId, old?.sessionId ?? undefined); // Don't resume old session
         await getSession(chatId);
         await client.sendMessage(chatId, cmd === '/new' ? '🆕 New session.' : '✅ Ready in `' + workDir(chatId) + '`');
         break;
@@ -1015,7 +1057,9 @@ async function main(): Promise<void> {
         const lines: string[] = [];
 
         // Resume command at the bottom
-        const resumeCmd = s.sessionId ? '\n```\ncopilot --resume ' + s.sessionId + '\n```' : '';
+          const transportLine = config.cliUrl ? '🔌 External CLI `' + config.cliUrl + '`' : '🖥️ Local CLI `' + bin + '`';
+
+          const resumeCmd = s.sessionId ? '\n```\ncopilot --resume ' + s.sessionId + '\n```' : '';
 
         // Git branch
         try {
@@ -1024,6 +1068,8 @@ async function main(): Promise<void> {
         } catch {
           lines.push('📂 `' + dir + '`');
         }
+
+        lines.push(transportLine);
 
         try {
           const [model, mode, agent] = await Promise.all([
@@ -1118,14 +1164,14 @@ async function main(): Promise<void> {
               if (s.alive) {
                 s.kill();
                 sessions.delete(chatId);
-                sessionStore.delete(chatId);
+                purgeSessionPersistence(chatId, s.sessionId ?? undefined).catch(() => {});
                 client.sendMessage(chatId, '💀 Hard killed — agent didn\'t stop.').catch(() => {});
               }
             }, 5000);
           } catch {
             s.kill();
             sessions.delete(chatId);
-            sessionStore.delete(chatId);
+            await purgeSessionPersistence(chatId, s.sessionId ?? undefined);
             await client.sendMessage(chatId, '🛑 Session killed.');
           }
         } else {
@@ -1564,7 +1610,7 @@ async function main(): Promise<void> {
     // Try to get a one-shot answer from Copilot within Telegram's inline timeout
     try {
       const s = new Session();
-      await s.start({ cwd: config.workDir, binary: bin, githubToken: config.githubToken });
+      await s.start({ cwd: config.workDir, binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken });
       const res = await Promise.race([
         s.send(query),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),

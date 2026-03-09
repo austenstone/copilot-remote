@@ -13,6 +13,7 @@ import type { Client, MessageOptions, Button } from './client.js';
 
 const MAX_MESSAGE_LENGTH = 4096;
 const DRAFT_ID_MAX = 2_147_483_647;
+const DRAFT_REQUEST_TIMEOUT_MS = 1200;
 let nextDraftId = 0;
 
 type MyContext = HydrateFlavor<FileFlavor<Context>>;
@@ -390,7 +391,7 @@ export class TelegramClient implements Client {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(params),
-          signal: globalThis.AbortSignal.timeout(2000), // 2s timeout — don't block streaming
+          signal: globalThis.AbortSignal.timeout(DRAFT_REQUEST_TIMEOUT_MS), // fail fast to keep streaming responsive
         },
       );
       const json = (await resp.json()) as { ok?: boolean; description?: string };

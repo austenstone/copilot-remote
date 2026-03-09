@@ -103,7 +103,9 @@ export interface SessionMessage {
 
 export interface SessionOptions {
   cwd: string;
+  sessionId?: string;
   binary?: string;
+  cliUrl?: string;
   model?: string;
   autopilot?: boolean;
   agent?: string;
@@ -132,29 +134,79 @@ export class Session extends EventEmitter {
   // Shared CopilotClient — one CLI process for all sessions
   private static sharedClient: CopilotClient | null = null;
   private static sharedClientStarting: Promise<void> | null = null;
+  private static sharedClientSignature: string | null = null;
   private static clientRefCount = 0;
 
-  private static async getSharedClient(opts?: { binary?: string; githubToken?: string }): Promise<CopilotClient> {
+  private static buildSharedClientOptions(opts?: {
+    binary?: string;
+    cliUrl?: string;
+    githubToken?: string;
+  }): CopilotClientOptions {
+    if (opts?.cliUrl) {
+      return { cliUrl: opts.cliUrl };
+    }
+
+    const clientOpts: CopilotClientOptions = { useStdio: true };
+    if (opts?.binary) clientOpts.cliPath = opts.binary;
+    if (opts?.githubToken) clientOpts.githubToken = opts.githubToken;
+    return clientOpts;
+  }
+
+  private static getSharedClientSignature(opts?: {
+    binary?: string;
+    cliUrl?: string;
+    githubToken?: string;
+  }): string {
+    return JSON.stringify(Session.buildSharedClientOptions(opts));
+  }
+
+  private static async getSharedClient(
+    opts?: { binary?: string; cliUrl?: string; githubToken?: string },
+    retain = true,
+  ): Promise<CopilotClient> {
+    const signature = Session.getSharedClientSignature(opts);
+
     if (Session.sharedClient) {
-      Session.clientRefCount++;
+      if (Session.sharedClientSignature !== signature) {
+        throw new Error('Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.');
+      }
+      if (retain) Session.clientRefCount++;
       return Session.sharedClient;
     }
     if (Session.sharedClientStarting) {
       await Session.sharedClientStarting;
-      Session.clientRefCount++;
+      if (Session.sharedClientSignature !== signature) {
+        throw new Error('Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.');
+      }
+      if (retain) Session.clientRefCount++;
       return Session.sharedClient!;
     }
-    const clientOpts: CopilotClientOptions = { useStdio: true };
-    if (opts?.binary) clientOpts.cliPath = opts.binary;
-    if (opts?.githubToken) clientOpts.githubToken = opts.githubToken;
+    const clientOpts = Session.buildSharedClientOptions(opts);
     const client = new CopilotClient(clientOpts);
+    Session.sharedClientSignature = signature;
     Session.sharedClientStarting = client.start().then(() => {
       Session.sharedClient = client;
       Session.sharedClientStarting = null;
+    }).catch((error) => {
+      Session.sharedClientStarting = null;
+      Session.sharedClientSignature = null;
+      throw error;
     });
     await Session.sharedClientStarting;
-    Session.clientRefCount++;
+    if (retain) Session.clientRefCount++;
     return client;
+  }
+
+  static async prewarmSharedClient(opts?: { binary?: string; cliUrl?: string; githubToken?: string }): Promise<void> {
+    await Session.getSharedClient(opts, false);
+  }
+
+  static async deletePersistedSession(
+    sessionId: string,
+    opts?: { binary?: string; cliUrl?: string; githubToken?: string },
+  ): Promise<void> {
+    const client = await Session.getSharedClient(opts, false);
+    await client.deleteSession(sessionId);
   }
 
   private static releaseClient() {
@@ -222,6 +274,7 @@ export class Session extends EventEmitter {
     systemLines.push('Current config: ' + configContext.join(', ') + '.');
 
     return {
+      ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
       clientName: 'copilot-remote',
       streaming: true,
       workingDirectory: this.cwd,
@@ -302,7 +355,7 @@ export class Session extends EventEmitter {
     this._autopilot = opts.autopilot ?? false;
     this._messageMode = opts.messageMode;
 
-    this.client = await Session.getSharedClient({ binary: opts.binary, githubToken: opts.githubToken });
+    this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken });
 
     this.session = await this.client.createSession(this.buildConfig(opts) as SessionConfig);
     this._alive = true;
@@ -644,7 +697,7 @@ export class Session extends EventEmitter {
     this._messageMode = opts.messageMode;
 
     if (!this.client) {
-      this.client = await Session.getSharedClient({ binary: opts.binary, githubToken: opts.githubToken });
+      this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken });
     }
 
     this.session = await this.client.resumeSession(sessionId, this.buildConfig(opts) as SessionConfig);
