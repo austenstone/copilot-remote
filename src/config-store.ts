@@ -77,7 +77,11 @@ export class ConfigStore {
 
   /** Get the raw global config file (non-ChatConfig fields like provider, mcpServers, etc.) */
   raw(): GlobalConfig {
-    return this.rawFile;
+    const provider = resolveProviderConfig(this.rawFile.provider);
+    return {
+      ...this.rawFile,
+      ...(provider ? { provider } : {}),
+    };
   }
 
   /** Get effective config for a session key (global + overrides merged) */
@@ -134,10 +138,11 @@ export class ConfigStore {
     try {
       if (existsSync(CONFIG_FILE)) {
         const data = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+        const provider = resolveProviderConfig(data.provider);
         log.info('[config] Loaded from', CONFIG_FILE);
         this.rawFile = {
           ...data,
-          ...(resolveProviderConfig(data.provider) ? { provider: resolveProviderConfig(data.provider) } : {}),
+          ...(provider ? { provider } : {}),
         };
         return {
           ...DEFAULT_CONFIG,

@@ -13,6 +13,7 @@ import { discoverAgents } from './agent-discovery.js';
 import { handleAgentCallback } from './agent-menu.js';
 import { handleCdCommand } from './cd-command.js';
 import { log } from './log.js';
+import { resolveProviderConfig } from './provider-config.js';
 import {
   PROMPT_COMMANDS, TOOL_LABELS, LIFECYCLE_REACTIONS, PERM_ICONS,
   MODE_ICONS,
@@ -55,13 +56,15 @@ function loadConfig() {
 
   const botToken = botTokenArg ?? file.botToken ?? process.env.COPILOT_REMOTE_BOT_TOKEN;
   const cliUrl = cliUrlArg ?? file.cliUrl ?? process.env.COPILOT_REMOTE_CLI_URL;
-  const githubToken = cliUrl ? undefined : (file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken());
+  const provider = resolveProviderConfig(file.provider);
+  const githubToken = cliUrl || provider ? undefined : (file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken());
   return {
     botToken,
     allowedUsers: file.allowedUsers ?? process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
     workDir: file.workDir ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
     copilotBinary: file.copilotBinary ?? process.env.COPILOT_REMOTE_BINARY,
     cliUrl,
+    provider,
     githubToken,
     profilePhoto: file.profilePhoto,
     _cfgPath: cfgPath ?? homeCfg,
@@ -128,7 +131,7 @@ async function main(): Promise<void> {
     profilePhoto: config.profilePhoto,
   });
 
-  void Session.prewarmSharedClient({ binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken }).then(() => {
+  void Session.prewarmSharedClient({ binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken, provider: config.provider }).then(() => {
     log.info('Prewarmed Copilot client');
   }).catch((e) => {
     log.debug('Copilot client prewarm failed:', e);
@@ -226,6 +229,7 @@ async function main(): Promise<void> {
             binary: bin,
             cliUrl: config.cliUrl,
             githubToken: config.githubToken,
+            provider: config.provider,
           });
           log.info('Purged persisted session', sessionId, 'for', chatId);
         } catch (e) {
@@ -380,7 +384,7 @@ async function main(): Promise<void> {
       infiniteSessions: c.infiniteSessions,
       messageMode: c.messageMode || undefined,
       // Global config passthrough
-      provider: globalCfg.provider,
+      provider: globalCfg.provider ?? config.provider,
       mcpServers: (() => {
         // Merge: ~/.copilot/mcp-config.json + config.json mcpServers
         const merged = { ...(globalCfg.mcpServers ?? {}) };
@@ -1603,7 +1607,7 @@ async function main(): Promise<void> {
     // Try to get a one-shot answer from Copilot within Telegram's inline timeout
     try {
       const s = new Session();
-      await s.start({ cwd: config.workDir, binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken });
+      await s.start({ cwd: config.workDir, binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken, provider: config.provider });
       const res = await Promise.race([
         s.send(query),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),

@@ -232,6 +232,24 @@ describe('Session', () => {
     });
   });
 
+  it('disables logged-in user auth when a BYOK provider is configured', () => {
+    const clientOpts = (Session as any).buildSharedClientOptions({
+      binary: 'copilot',
+      githubToken: 'token-123',
+      provider: {
+        type: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-test',
+      },
+    });
+
+    assert.deepEqual(clientOpts, {
+      useStdio: true,
+      useLoggedInUser: false,
+      cliPath: 'copilot',
+    });
+  });
+
   it('includes a custom sessionId in the SDK session config', () => {
     const session = new Session() as any;
     session.cwd = '/tmp/project';
@@ -243,6 +261,29 @@ describe('Session', () => {
     });
 
     assert.equal(config.sessionId, 'telegram--100123-thread-42');
+  });
+
+  it('passes provider config through to the SDK session config', () => {
+    const session = new Session() as any;
+    session.cwd = '/tmp/project';
+
+    const config = session.buildConfig({
+      cwd: '/tmp/project',
+      model: 'gpt-4.1-mini',
+      provider: {
+        type: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-test',
+        wireApi: 'responses',
+      },
+    });
+
+    assert.deepEqual(config.provider, {
+      type: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-test',
+      wireApi: 'responses',
+    });
   });
 
   it('deletePersistedSession uses the shared client without retaining it', async () => {

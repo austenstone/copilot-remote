@@ -16,6 +16,8 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 
 If you already run a headless Copilot CLI server, set `cliUrl` in config or `COPILOT_REMOTE_CLI_URL` and the bridge will connect to it instead of spawning its own CLI process.
 
+If you want Bring Your Own Key (BYOK), configure `provider` in `~/.copilot-remote/config.json` or use the `COPILOT_REMOTE_PROVIDER_*` env vars. When a provider is set, `copilot-remote` skips GitHub Copilot auth and uses your provider directly.
+
 ## Features
 
 - **Streaming** — edit-in-place responses with typing indicators
@@ -79,6 +81,45 @@ If you already run a headless Copilot CLI server, set `cliUrl` in config or `COP
 ```
 
 Only `botToken` is required. If you are not using `cliUrl`, you also need GitHub auth via `gh auth login` or `GITHUB_TOKEN`.
+
+### BYOK providers
+
+`copilot-remote` supports the Copilot SDK BYOK providers documented by GitHub:
+
+- `openai`
+- `azure`
+- `anthropic`
+
+Example config:
+
+```json
+{
+  "botToken": "telegram-bot-token",
+  "model": "gpt-4.1-mini",
+  "provider": {
+    "type": "openai",
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "sk-...",
+    "wireApi": "responses"
+  }
+}
+```
+
+Supported env vars:
+
+- `COPILOT_REMOTE_PROVIDER_TYPE`
+- `COPILOT_REMOTE_PROVIDER_BASE_URL`
+- `COPILOT_REMOTE_PROVIDER_API_KEY`
+- `COPILOT_REMOTE_PROVIDER_BEARER_TOKEN`
+- `COPILOT_REMOTE_PROVIDER_WIRE_API`
+- `COPILOT_REMOTE_PROVIDER_AZURE_API_VERSION`
+
+Notes:
+
+- BYOK uses your provider's billing and limits, not your GitHub Copilot quota.
+- You still need to set `model` explicitly for the provider you choose.
+- Native Azure OpenAI endpoints should use `type: "azure"` with the host root as `baseUrl`.
+- Azure AI Foundry endpoints that already expose `/openai/v1/` should use `type: "openai"`.
 
 `cliUrl` connects to an already-running headless Copilot CLI server. When set, `copilot-remote` does not spawn its own CLI process and does not pass `GITHUB_TOKEN` through to the SDK client.
 

@@ -16,6 +16,7 @@ import {
 export type FileAttachment = NonNullable<MessageOptions['attachments']>[number];
 import { EventEmitter } from 'events';
 import { log } from './log.js';
+import type { RemoteProviderConfig } from './provider-config.js';
 import { createTelegramTools } from './tools.js';
 
 /** Reasoning effort levels supported by the SDK */
@@ -115,7 +116,7 @@ export interface SessionOptions {
   infiniteSessions?: boolean;
   messageMode?: 'enqueue' | 'immediate';
   // Global config passthrough
-  provider?: { type?: 'openai' | 'azure' | 'anthropic'; baseUrl: string; apiKey?: string; model?: string };
+  provider?: RemoteProviderConfig;
   mcpServers?: Record<string, unknown>;
   customAgents?: unknown[];
   skillDirectories?: string[];
@@ -141,14 +142,18 @@ export class Session extends EventEmitter {
     binary?: string;
     cliUrl?: string;
     githubToken?: string;
+    provider?: RemoteProviderConfig;
   }): CopilotClientOptions {
     if (opts?.cliUrl) {
       return { cliUrl: opts.cliUrl };
     }
 
-    const clientOpts: CopilotClientOptions = { useStdio: true };
+    const clientOpts: CopilotClientOptions = {
+      useStdio: true,
+      ...(opts?.provider ? { useLoggedInUser: false } : {}),
+    };
     if (opts?.binary) clientOpts.cliPath = opts.binary;
-    if (opts?.githubToken) clientOpts.githubToken = opts.githubToken;
+    if (opts?.githubToken && !opts.provider) clientOpts.githubToken = opts.githubToken;
     return clientOpts;
   }
 
@@ -156,12 +161,13 @@ export class Session extends EventEmitter {
     binary?: string;
     cliUrl?: string;
     githubToken?: string;
+    provider?: RemoteProviderConfig;
   }): string {
     return JSON.stringify(Session.buildSharedClientOptions(opts));
   }
 
   private static async getSharedClient(
-    opts?: { binary?: string; cliUrl?: string; githubToken?: string },
+    opts?: { binary?: string; cliUrl?: string; githubToken?: string; provider?: RemoteProviderConfig },
     retain = true,
   ): Promise<CopilotClient> {
     const signature = Session.getSharedClientSignature(opts);
@@ -197,13 +203,13 @@ export class Session extends EventEmitter {
     return client;
   }
 
-  static async prewarmSharedClient(opts?: { binary?: string; cliUrl?: string; githubToken?: string }): Promise<void> {
+  static async prewarmSharedClient(opts?: { binary?: string; cliUrl?: string; githubToken?: string; provider?: RemoteProviderConfig }): Promise<void> {
     await Session.getSharedClient(opts, false);
   }
 
   static async deletePersistedSession(
     sessionId: string,
-    opts?: { binary?: string; cliUrl?: string; githubToken?: string },
+    opts?: { binary?: string; cliUrl?: string; githubToken?: string; provider?: RemoteProviderConfig },
   ): Promise<void> {
     const client = await Session.getSharedClient(opts, false);
     await client.deleteSession(sessionId);
@@ -355,7 +361,7 @@ export class Session extends EventEmitter {
     this._autopilot = opts.autopilot ?? false;
     this._messageMode = opts.messageMode;
 
-    this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken });
+    this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken, provider: opts.provider });
 
     this.session = await this.client.createSession(this.buildConfig(opts) as SessionConfig);
     this._alive = true;
@@ -697,7 +703,7 @@ export class Session extends EventEmitter {
     this._messageMode = opts.messageMode;
 
     if (!this.client) {
-      this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken });
+      this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken, provider: opts.provider });
     }
 
     this.session = await this.client.resumeSession(sessionId, this.buildConfig(opts) as SessionConfig);
