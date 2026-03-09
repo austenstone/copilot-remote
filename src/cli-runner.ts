@@ -20,12 +20,16 @@ const HELP_TEXT = `
   Usage:
     copilot-remote install [--hackable]
     copilot-remote daemon-install [--hackable]
+    copilot-remote uninstall
+    copilot-remote daemon-uninstall
     copilot-remote --token <bot-token> --github-token <gh-token>
     copilot-remote --token <bot-token> --provider-base-url <url>
 
   Commands:
     install              Install the persistent launchd/systemd daemon
     daemon-install       Alias for install
+    uninstall            Remove the persistent launchd/systemd daemon and local files
+    daemon-uninstall     Alias for uninstall
 
   Options:
     --token, -t          Telegram bot token (or COPILOT_REMOTE_BOT_TOKEN)
@@ -106,6 +110,15 @@ export async function runCli(rawArgs: string[], deps: CliRunnerDeps = {}): Promi
       return runInstaller(installerPath, commandArgs, env);
     } catch (installerError) {
       error(`Failed to run installer: ${installerError instanceof Error ? installerError.message : String(installerError)}`);
+      return 1;
+    }
+  }
+
+  if (command === 'uninstall' || command === 'daemon-uninstall') {
+    try {
+      return runInstaller(installerPath, ['--uninstall', ...commandArgs], env);
+    } catch (installerError) {
+      error(`Failed to run uninstaller: ${installerError instanceof Error ? installerError.message : String(installerError)}`);
       return 1;
     }
   }

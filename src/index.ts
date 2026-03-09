@@ -16,7 +16,7 @@ import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { discoverAgents } from './agent-discovery.js';
 import { loadMcpServers, formatServerLine, getConfigPaths } from './mcp-config.js';
 import { handleAgentCallback } from './agent-menu.js';
-import { handleSessionCallback } from './session-menu.js';
+import { attachSessionById, formatSessionIdMessage, handleSessionCallback } from './session-menu.js';
 import { handleCdCommand } from './cd-command.js';
 import { handleIncomingFileUpload } from './file-intake.js';
 import { log } from './log.js';
@@ -1375,6 +1375,29 @@ async function main(): Promise<void> {
     }
 
     switch (cmd) {
+      case '/attach': {
+        if (!argStr.trim()) {
+          await client.sendMessage(chatId, '🔗 Usage: `/attach <session-id>`\nYou can also paste `copilot --resume <session-id>`.', { replyTo: msgId });
+          break;
+        }
+
+        const result = await attachSessionById(argStr, chatId, {
+          client,
+          sessions,
+          sessionStore,
+          getWorkDir: workDir,
+          rememberWorkDir: (targetChatId: string, cwd: string) => {
+            workDirs.set(targetChatId, cwd);
+            sessionStore.setWorkDir(targetChatId, cwd);
+            restartManager.addWorkDir(cwd);
+          },
+          createSession: () => new Session(),
+          buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) => buildSessionOptions(targetChatId, cwd, sessionId),
+          registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
+        });
+        await client.sendMessage(chatId, result.message, { replyTo: msgId });
+        break;
+      }
       case '/start':
       case '/new': {
         if (args[0] && cmd === '/start') {
@@ -1402,6 +1425,25 @@ async function main(): Promise<void> {
         break;
       }
       case '/resume': {
+        if (argStr.trim()) {
+          const result = await attachSessionById(argStr, chatId, {
+            client,
+            sessions,
+            sessionStore,
+            getWorkDir: workDir,
+            rememberWorkDir: (targetChatId: string, cwd: string) => {
+              workDirs.set(targetChatId, cwd);
+              sessionStore.setWorkDir(targetChatId, cwd);
+              restartManager.addWorkDir(cwd);
+            },
+            createSession: () => new Session(),
+            buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) => buildSessionOptions(targetChatId, cwd, sessionId),
+            registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
+          });
+          await client.sendMessage(chatId, result.message, { replyTo: msgId });
+          break;
+        }
+
         const saved = sessionStore.list();
         if (!saved.length) {
           await client.sendMessage(chatId, 'No saved sessions.');
@@ -1453,14 +1495,39 @@ async function main(): Promise<void> {
           const turns = sessionStore.getTurnCount(entry.sessionId);
           const isCurrent = entry.sessionId === current;
           const isActive = !isCurrent && activeSessions.has(entry.sessionId);
-          const label = (isCurrent ? '▶️ ' : isActive ? '🟢 ' : '') + summary + (turns ? ' · ' + turns + ' turns' : '') + ' · ' + ago(entry.lastUsed);
-          buttons.push([{
-            text: label,
-            data: '@' + chatId + '|session:' + entry.sessionId,
-            ...(isCurrent ? { style: 'success' } : isActive ? { style: 'primary' } : {}),
-          }]);
+          const label = (isCurrent ? '▶️ ' : isActive ? '🟢 ' : '🔁 ')
+            + summary
+            + (turns ? ' · ' + turns + ' turns' : '')
+            + ' · ' + ago(entry.lastUsed);
+          buttons.push([
+            {
+              text: label,
+              data: '@' + chatId + '|session:' + entry.sessionId,
+              ...(isCurrent ? { style: 'success' } : isActive ? { style: 'primary' } : {}),
+            },
+            {
+              text: '🆔',
+              data: '@' + chatId + '|sessionid:' + entry.sessionId,
+            },
+          ]);
         }
-        await client.sendButtons(chatId, '📋 *Sessions*', buttons);
+        await client.sendButtons(chatId, '📋 *Sessions*\nTap a row to attach it, or 🆔 to export the raw session id.', buttons);
+        break;
+      }
+      case '/sessionid':
+      case '/id': {
+        const selectedSessionId = argStr.trim() || sessions.get(chatId)?.sessionId;
+        if (!selectedSessionId) {
+          await client.sendMessage(chatId, '🆔 No active session. Use `/sessionid <session-id>` or start one first.', { replyTo: msgId });
+          break;
+        }
+
+        const entry = sessionStore.getBySessionId(selectedSessionId);
+        await client.sendMessage(
+          chatId,
+          formatSessionIdMessage(selectedSessionId, entry?.cwd || workDir(chatId)),
+          { replyTo: msgId },
+        );
         break;
       }
       case '/status': {
@@ -1555,7 +1622,12 @@ async function main(): Promise<void> {
           /* ignore */
         }
 
-        await client.sendMessage(chatId, lines.join("\n") + resumeCmd);
+        const statusText = lines.join("\n") + resumeCmd;
+        if (s.sessionId) {
+          await client.sendButtons(chatId, statusText, [[{ text: '🆔 Session ID', data: '@' + chatId + '|sessionid:' + s.sessionId }]]);
+        } else {
+          await client.sendMessage(chatId, statusText);
+        }
         break;
       }
       case '/mcp': {
@@ -2003,8 +2075,10 @@ async function main(): Promise<void> {
             '*💬 Session*',
             '`/new` — Fresh session',
             '`/stop` — Kill session',
+            '`/attach <session-id>` — Attach any known Copilot session',
             '`/cd <dir>` — Change working directory',
             '`/status` — Model, mode, cwd, quota',
+            '`/sessionid [session-id]` — Export a copy-friendly session id',
             '`/compact` — Compress context window',
             '`/abort` — Cancel current request',
             '',

@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { handleSessionCallback } from '../session-menu.js';
+import {
+  attachSessionById,
+  formatSessionIdMessage,
+  handleSessionCallback,
+  normalizeSessionIdInput,
+} from '../session-menu.js';
 import type { SessionOptions } from '../session.js';
 import type { SessionEntry } from '../store.js';
 
@@ -8,6 +13,11 @@ function createDeps() {
   const client = {
     editButtonsCalls: [] as Array<Record<string, unknown>>,
     answerCallbackCalls: [] as Array<Record<string, unknown>>,
+    sendMessageCalls: [] as Array<Record<string, unknown>>,
+    async sendMessage(chatId: string, text: string) {
+      this.sendMessageCalls.push({ chatId, text });
+      return 99;
+    },
     async editButtons(chatId: string, msgId: number, text: string, buttons: unknown[][]) {
       this.editButtonsCalls.push({ chatId, msgId, text, buttons });
     },
@@ -81,6 +91,22 @@ function createDeps() {
 }
 
 describe('handleSessionCallback', () => {
+  it('normalizes raw session ids and resume commands', () => {
+    assert.equal(normalizeSessionIdInput('cli-session-1'), 'cli-session-1');
+    assert.equal(normalizeSessionIdInput('`cli-session-1`'), 'cli-session-1');
+    assert.equal(normalizeSessionIdInput('copilot --resume cli-session-1'), 'cli-session-1');
+    assert.equal(normalizeSessionIdInput('--resume cli-session-1'), 'cli-session-1');
+  });
+
+  it('formats a copy-friendly session id message', () => {
+    const message = formatSessionIdMessage('cli-session-1', '/tmp/worktree');
+
+    assert.match(message, /cli-session-1/);
+    assert.match(message, /copilot --resume cli-session-1/);
+    assert.match(message, /\/attach cli-session-1/);
+    assert.match(message, /\/tmp\/worktree/);
+  });
+
   it('returns false for unrelated callbacks', async () => {
     const { deps } = createDeps();
 
@@ -148,17 +174,56 @@ describe('handleSessionCallback', () => {
     });
   });
 
-  it('reports missing sessions cleanly', async () => {
+  it('falls back to direct manual attach when the store has no metadata for the session', async () => {
     const { client, deps } = createDeps();
 
     const handled = await handleSessionCallback('session:missing-session', 'chat-1', 7, 'cb-3', deps);
 
     assert.equal(handled, true);
-    assert.match(String(client.editButtonsCalls[0]?.text), /no longer exists/i);
+    assert.match(String(client.editButtonsCalls[0]?.text), /Resumed session/i);
+    assert.match(String(client.editButtonsCalls[0]?.text), /missing-session/);
     assert.deepEqual(client.answerCallbackCalls[0], {
       callbackId: 'cb-3',
-      text: 'Session not found',
-      showAlert: true,
+      text: 'Session resumed',
+      showAlert: undefined,
+    });
+  });
+
+  it('can manually attach a known session id even without store metadata', async () => {
+    const { rememberedWorkDirs, registered, sessions, storeWrites, resumableSession, deps } = createDeps();
+    deps.sessionStore.getBySessionId = () => undefined;
+
+    const result = await attachSessionById('copilot --resume cli-session-manual', 'chat-1', deps);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(resumableSession.resumeCalls, [{
+      sessionId: 'cli-session-manual',
+      opts: {
+        cwd: '/tmp/fallback',
+        sessionId: 'cli-session-manual',
+        model: 'claude-sonnet-4',
+        autopilot: false,
+        messageMode: 'enqueue',
+      },
+    }]);
+    assert.deepEqual(rememberedWorkDirs, [{ chatId: 'chat-1', cwd: '/tmp/fallback' }]);
+    assert.deepEqual(registered, [{ chatId: 'chat-1', session: resumableSession }]);
+    assert.equal(sessions.get('chat-1'), resumableSession);
+    assert.equal((storeWrites[0]?.entry as { sessionId: string }).sessionId, 'cli-session-manual');
+  });
+
+  it('sends a copy-friendly message for sessionid callbacks', async () => {
+    const { client, deps } = createDeps();
+
+    const handled = await handleSessionCallback('sessionid:cli-session-1', 'chat-1', 7, 'cb-4', deps);
+
+    assert.equal(handled, true);
+    assert.equal(client.sendMessageCalls.length, 1);
+    assert.match(String(client.sendMessageCalls[0]?.text), /copilot --resume cli-session-1/);
+    assert.deepEqual(client.answerCallbackCalls[0], {
+      callbackId: 'cb-4',
+      text: 'Sent session ID',
+      showAlert: undefined,
     });
   });
 });

@@ -299,8 +299,10 @@ export class TelegramClient implements Client {
     await this.bot.api
       .setMyCommands([
         { command: 'new', description: 'Start fresh session' },
+        { command: 'attach', description: 'Attach a known Copilot session' },
         { command: 'config', description: 'Settings & preferences' },
         { command: 'status', description: 'Session info & quota' },
+        { command: 'sessionid', description: 'Show a copy-friendly session id' },
         { command: 'sessions', description: 'List & resume sessions' },
         { command: 'agent', description: 'Switch agent' },
         { command: 'prompt', description: 'Run a prompt file' },

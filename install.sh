@@ -13,7 +13,9 @@ umask 077
 REPO="austenstone/copilot-remote"
 INSTALL_DIR="$HOME/.copilot-remote"
 PLIST_PATH="$HOME/Library/LaunchAgents/com.copilot-remote.plist"
+UNIT_PATH="$HOME/.config/systemd/user/copilot-remote.service"
 HACKABLE=0
+UNINSTALL=0
 
 read_secret() {
   local __target="$1"
@@ -29,8 +31,35 @@ read_secret() {
 for arg in "$@"; do
   case "$arg" in
     --hackable) HACKABLE=1 ;;
+    --uninstall) UNINSTALL=1 ;;
   esac
 done
+
+uninstall_copilot_remote() {
+  echo ""
+  echo "  🧹 Uninstalling copilot-remote..."
+
+  if [ "$(uname)" = "Darwin" ]; then
+    launchctl unload "$PLIST_PATH" 2>/dev/null || true
+    rm -f "$PLIST_PATH"
+  elif command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now copilot-remote >/dev/null 2>&1 || true
+    rm -f "$UNIT_PATH"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    systemctl --user reset-failed >/dev/null 2>&1 || true
+  fi
+
+  cd "$HOME"
+  rm -rf "$INSTALL_DIR"
+
+  echo "  ✅ Copilot Remote uninstalled."
+  echo ""
+}
+
+if [ "$UNINSTALL" -eq 1 ]; then
+  uninstall_copilot_remote
+  exit 0
+fi
 
 echo ""
 echo "  ⚡ Copilot Remote Installer"
@@ -249,13 +278,12 @@ EOF
   else
     echo "  Update:   cd ~/.copilot-remote && git pull && npm run build"
   fi
-  echo "  Uninstall: launchctl unload $PLIST_PATH && rm -rf ~/.copilot-remote $PLIST_PATH"
+  echo "  Uninstall: node ~/.copilot-remote/dist/cli.js uninstall"
   echo ""
 
 elif command -v systemctl >/dev/null 2>&1; then
   echo "  🐧 Setting up systemd service..."
 
-  UNIT_PATH="$HOME/.config/systemd/user/copilot-remote.service"
   mkdir -p "$(dirname "$UNIT_PATH")"
 
   # Hackable: run TypeScript directly, standard: compiled JS via plain Node
@@ -305,7 +333,7 @@ EOF
   else
     echo "  Update:    cd ~/.copilot-remote && git pull && npm run build && systemctl --user restart copilot-remote"
   fi
-  echo "  Uninstall: systemctl --user disable --now copilot-remote && rm -rf ~/.copilot-remote $UNIT_PATH"
+  echo "  Uninstall: node ~/.copilot-remote/dist/cli.js uninstall"
   echo ""
 
 else

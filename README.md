@@ -22,6 +22,20 @@ npx copilot-remote install
 npx copilot-remote daemon-install
 ```
 
+And yes, now there is a real uninstall command too:
+
+```bash
+npx copilot-remote uninstall
+# or
+npx copilot-remote daemon-uninstall
+```
+
+If you installed via the one-line curl script, use the bundled CLI directly:
+
+```bash
+node ~/.copilot-remote/dist/cli.js uninstall
+```
+
 If you want to run the bridge in the foreground instead of installing the daemon, use a local clone for now:
 
 ```bash
@@ -90,6 +104,8 @@ Like Claude Remote Control, the important bit is that the local process must sta
 |---------|-------------|
 | `/new` | Fresh session |
 | `/stop` | Kill session |
+| `/attach <session-id>` | Manually attach any known Copilot session |
+| `/sessionid [session-id]` | Print a copy-friendly session id + resume command |
 | `/cd <dir>` | Change working directory (restarts session) |
 | `/status` | Model, mode, git branch, quota |
 | `/config` | Settings menu (model, mode, display, auto-approve) |
@@ -202,6 +218,36 @@ By default, each Telegram chat or forum topic maps to a deterministic Copilot se
 That makes persistence and debugging a lot less mysterious, and it plays nicely with Copilot CLI resume flows.
 
 The old `~/.copilot-remote/chat-sessions.json` file is now legacy-only. It is still read for migration/fallback, but deterministic session IDs are the default path.
+
+You can manually attach any known Copilot session with:
+
+```text
+/attach <session-id>
+```
+
+`copilot-remote` also accepts the full CLI form, so this works too:
+
+```text
+/attach copilot --resume <session-id>
+```
+
+If you want a copy-friendly export for VS Code Copilot CLI flows or another chat/topic, use:
+
+```text
+/sessionid
+```
+
+or for a specific session:
+
+```text
+/sessionid <session-id>
+```
+
+The output includes the exact resume command:
+
+```text
+copilot --resume <session-id>
+```
 
 ## Running as a Service (macOS)
 

@@ -47,6 +47,50 @@ describe('runCli', () => {
     assert.deepEqual(installerCalls, [[]]);
   });
 
+  it('delegates uninstall to the bundled installer in uninstall mode', async () => {
+    const installerCalls: Array<{ scriptPath: string; args: string[]; env: NodeJS.ProcessEnv }> = [];
+
+    const exitCode = await runCli(['uninstall'], {
+      env: {},
+      installerPath: '/tmp/copilot-remote/install.sh',
+      runInstaller: (scriptPath, args, env) => {
+        installerCalls.push({ scriptPath, args, env });
+        return 0;
+      },
+      startMain: async () => {
+        throw new Error('startMain should not run for uninstall');
+      },
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(installerCalls, [
+      {
+        scriptPath: '/tmp/copilot-remote/install.sh',
+        args: ['--uninstall'],
+        env: {},
+      },
+    ]);
+  });
+
+  it('treats daemon-uninstall as an uninstall alias', async () => {
+    const installerCalls: string[][] = [];
+
+    const exitCode = await runCli(['daemon-uninstall'], {
+      env: {},
+      installerPath: '/tmp/copilot-remote/install.sh',
+      runInstaller: (_scriptPath, args) => {
+        installerCalls.push(args);
+        return 0;
+      },
+      startMain: async () => {
+        throw new Error('startMain should not run for daemon-uninstall');
+      },
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(installerCalls, [['--uninstall']]);
+  });
+
   it('forwards parsed options into env before starting the main app', async () => {
     const env: NodeJS.ProcessEnv = {};
     let started = false;
