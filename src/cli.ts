@@ -12,6 +12,7 @@
 //   --provider-bearer-token  BYOK bearer token
 //   --provider-wire-api  BYOK wire API (completions|responses)
 //   --provider-azure-api-version  Azure API version override
+//   --fake-telegram      Use local mock Telegram harness instead of the real bot API
 //   --workdir, -w        Working directory (default: $HOME)
 //   --binary, -b         Path to copilot binary
 //   --allowed-users, -u  Comma-separated Telegram user IDs
@@ -42,6 +43,7 @@ const provider = resolveProviderConfig({
     apiVersion: getArg(['--provider-azure-api-version']),
   },
 });
+const fakeTelegram = args.includes('--fake-telegram') || process.env.COPILOT_REMOTE_FAKE_TELEGRAM === '1';
 const workdir = getArg(['--workdir', '-w']) ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.env.HOME ?? process.cwd();
 const binary = getArg(['--binary', '-b']) ?? process.env.COPILOT_REMOTE_BINARY;
 const allowedUsers = getArg(['--allowed-users', '-u']) ?? process.env.COPILOT_REMOTE_ALLOWED_USERS;
@@ -64,6 +66,7 @@ if (args.includes('--help') || args.includes('-h')) {
     --provider-bearer-token  BYOK static bearer token
     --provider-wire-api  BYOK wire API: completions or responses
     --provider-azure-api-version  Azure API version override
+    --fake-telegram      Use local mock Telegram harness (no real bot required)
     --workdir, -w        Working directory (default: ~)
     --binary, -b         Path to copilot binary (auto-detected)
     --allowed-users, -u  Comma-separated Telegram user IDs (default: auto-pair)
@@ -79,6 +82,7 @@ if (args.includes('--help') || args.includes('-h')) {
     COPILOT_REMOTE_PROVIDER_BEARER_TOKEN  BYOK bearer token
     COPILOT_REMOTE_PROVIDER_WIRE_API  BYOK wire API
     COPILOT_REMOTE_PROVIDER_AZURE_API_VERSION  Azure API version override
+    COPILOT_REMOTE_FAKE_TELEGRAM  Set to 1 to use the local mock Telegram harness
     COPILOT_REMOTE_WORKDIR      Working directory
     COPILOT_REMOTE_BINARY       Path to copilot binary
     COPILOT_REMOTE_ALLOWED_USERS  Comma-separated user IDs
@@ -86,7 +90,7 @@ if (args.includes('--help') || args.includes('-h')) {
   process.exit(0);
 }
 
-if (!token) {
+if (!token && !fakeTelegram) {
   console.error('Error: Telegram bot token required.');
   console.error('  Use --token <token> or set COPILOT_REMOTE_BOT_TOKEN');
   console.error('  Create a bot at https://t.me/BotFather');
@@ -100,9 +104,10 @@ if (!githubToken && !cliUrl && !provider) {
 }
 
 // Set env vars for the main module
-process.env.COPILOT_REMOTE_BOT_TOKEN = token;
+if (token) process.env.COPILOT_REMOTE_BOT_TOKEN = token;
 if (githubToken && !cliUrl && !provider) process.env.GITHUB_TOKEN = githubToken;
 if (cliUrl) process.env.COPILOT_REMOTE_CLI_URL = cliUrl;
+if (fakeTelegram) process.env.COPILOT_REMOTE_FAKE_TELEGRAM = '1';
 if (provider?.type) process.env.COPILOT_REMOTE_PROVIDER_TYPE = provider.type;
 if (provider?.baseUrl) process.env.COPILOT_REMOTE_PROVIDER_BASE_URL = provider.baseUrl;
 if (provider?.apiKey) process.env.COPILOT_REMOTE_PROVIDER_API_KEY = provider.apiKey;

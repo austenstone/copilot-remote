@@ -6,6 +6,7 @@ import type {
 } from './session.js';
 import type { Client, MessageOptions, Button } from './client.js';
 import type { ModelInfo, PermissionRequest } from '@github/copilot-sdk';
+import { MockTelegramHarness } from './testing/mock-telegram-harness.js';
 import { TelegramClient } from './telegram.js';
 import { SessionStore } from './store.js';
 import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
@@ -53,6 +54,7 @@ function loadConfig() {
   const botTokenArg = botTokenIdx >= 0 ? args[botTokenIdx + 1] : undefined;
   const cliUrlIdx = args.indexOf('--cli-url');
   const cliUrlArg = cliUrlIdx >= 0 ? args[cliUrlIdx + 1] : undefined;
+  const fakeTelegram = args.includes('--fake-telegram') || file.fakeTelegram === true || process.env.COPILOT_REMOTE_FAKE_TELEGRAM === '1';
 
   const botToken = botTokenArg ?? file.botToken ?? process.env.COPILOT_REMOTE_BOT_TOKEN;
   const cliUrl = cliUrlArg ?? file.cliUrl ?? process.env.COPILOT_REMOTE_CLI_URL;
@@ -64,6 +66,7 @@ function loadConfig() {
     workDir: file.workDir ?? process.env.COPILOT_REMOTE_WORKDIR ?? process.cwd(),
     copilotBinary: file.copilotBinary ?? process.env.COPILOT_REMOTE_BINARY,
     cliUrl,
+    fakeTelegram,
     provider,
     githubToken,
     profilePhoto: file.profilePhoto,
@@ -116,20 +119,23 @@ function resolveGhToken(): string | undefined {
 async function main(): Promise<void> {
   const config = loadConfig();
   if (config._file?.debug) log.setDebug(true);
-  const botToken = await ensureBotToken(config);
+  const botToken = config.fakeTelegram ? 'mock-telegram-token' : await ensureBotToken(config);
   const bin = config.copilotBinary ?? findBin('copilot');
 
   log.info(
     '⚡ Copilot Remote v' + version +
     ' | dir: ' + config.workDir +
+    (config.fakeTelegram ? ' | transport: mock-telegram-harness' : '') +
     (config.cliUrl ? ' | cli: ' + config.cliUrl : ' | cli: stdio'),
   );
 
-  const client: Client = new TelegramClient({
-    botToken,
-    allowedUsers: config.allowedUsers,
-    profilePhoto: config.profilePhoto,
-  });
+  const client: Client = config.fakeTelegram
+    ? new MockTelegramHarness()
+    : new TelegramClient({
+        botToken,
+        allowedUsers: config.allowedUsers,
+        profilePhoto: config.profilePhoto,
+      });
 
   void Session.prewarmSharedClient({ binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken, provider: config.provider }).then(() => {
     log.info('Prewarmed Copilot client');
@@ -797,9 +803,6 @@ async function main(): Promise<void> {
     session.on('tool_complete', onToolEnd);
     session.on('permission_request', onPerm);
     session.on('user_input_request', onUserInput);
-    session.on('context_info', (info: { tokenLimit: number; currentTokens: number; messagesLength: number }) => {
-      contextInfoMap.set(chatId, info);
-    });
     // Persistent listeners (usage, hooks, notifications) registered once in registerSessionListeners()
 
     const cleanup = () => {

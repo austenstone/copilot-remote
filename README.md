@@ -12,6 +12,12 @@ Conceptually, this is a lot like [Claude Code Remote Control's requirements](htt
 npx copilot-remote
 ```
 
+For a no-Telegram local mock harness, run:
+
+```bash
+npm run dev:mock
+```
+
 On first run, you'll be prompted for your Telegram bot token (get one from [@BotFather](https://t.me/BotFather)). Config is saved to `~/.copilot-remote/config.json`.
 
 GitHub auth is auto-detected from `gh auth login`. If the logged-in account doesn't have a Copilot license, set `githubToken` in config or `GITHUB_TOKEN` env.
@@ -19,6 +25,16 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 If you already run a headless Copilot CLI server, set `cliUrl` in config or `COPILOT_REMOTE_CLI_URL` and the bridge will connect to it instead of spawning its own CLI process.
 
 If you want Bring Your Own Key (BYOK), configure `provider` in `~/.copilot-remote/config.json` or use the `COPILOT_REMOTE_PROVIDER_*` env vars. When a provider is set, `copilot-remote` skips GitHub Copilot auth and uses your provider directly.
+
+## Requirements
+
+- A local Copilot session environment that is already authenticated and able to run on this machine
+- Node.js ≥ 20
+- `gh` CLI authenticated (`gh auth login`)
+- GitHub account with Copilot license
+- Telegram bot token from [@BotFather](https://t.me/BotFather)
+
+Like Claude Remote Control, the important bit is that the local process must stay alive and authenticated. `copilot-remote` does not move your tools, files, or MCP setup into the cloud — it relays into the Copilot session running on your machine.
 
 ## Features
 
@@ -143,28 +159,6 @@ For a plain phone relay, `enqueue` is the sane default.
 
 Add the bot to a Telegram supergroup with **admin rights** (`can_manage_topics`). Each forum topic gets its own isolated Copilot session — separate context, model, working directory. Topic name is injected into the system prompt to keep Copilot focused.
 
-## Architecture
-
-```
-src/
-  index.ts           — Bridge: commands, streaming, config routing
-  session.ts         — Copilot SDK wrapper (create, send, resume, permissions)
-  telegram.ts        — grammY-based Telegram client
-  client.ts          — Platform-agnostic Client interface
-  config-store.ts    — Persistent config with per-topic overrides
-  store.ts           — Session persistence (JSON)
-  format/            — Markdown → Telegram HTML (ported from OpenClaw)
-    ir.ts            — markdown-it IR parser
-    render.ts        — Style marker renderer
-    telegram.ts      — Telegram HTML with chunking, file ref wrapping
-    chunk.ts         — Text chunking utilities
-  emoji.ts           — Status emoji mapping
-  tools.ts           — Custom tool definitions
-  log.ts             — Minimal logger
-```
-
-Built on [grammY](https://grammy.dev) with auto-retry, hydrate, and parse-mode plugins.
-
 ## Session IDs
 
 By default, each Telegram chat or forum topic maps to a deterministic Copilot session ID:
@@ -209,15 +203,77 @@ EOF
 launchctl load ~/Library/LaunchAgents/com.copilot-remote.plist
 ```
 
-## Requirements
+## Browser Mocking for Telegram Web Apps
 
-- A local Copilot session environment that is already authenticated and able to run on this machine
-- Node.js ≥ 20
-- `gh` CLI authenticated (`gh auth login`)
-- GitHub account with Copilot license
-- Telegram bot token from [@BotFather](https://t.me/BotFather)
+`copilot-remote` itself is a Telegram bot bridge, not a browser-based Telegram Mini App. But if you build a companion web UI around it with React, Next.js, or another frontend stack, you can mock the Telegram environment locally instead of constantly reopening the Telegram client.
 
-Like Claude Remote Control, the important bit is that the local process must stay alive and authenticated. `copilot-remote` does not move your tools, files, or MCP setup into the cloud — it relays into the Copilot session running on your machine.
+The usual pattern is to use `@telegram-apps/sdk` helpers such as `mockTelegramEnv` and `isTMA` to spoof `initData` and detect whether the page is really running inside Telegram. That lets you develop and debug in a normal browser with desktop devtools while keeping behavior close to the real Telegram container.
+
+Practical rules:
+
+- use `isTMA()` (or an equivalent guard) before relying on Telegram runtime APIs
+- use `mockTelegramEnv(...)` only in development to inject test `initData`
+- keep the mocked path dev-only so production still depends on real Telegram launch data
+
+If you add a web surface later, this is the easiest way to test it without constantly bouncing through the Telegram app on mobile.
+
+## Local Mock Telegram Harness
+
+If you want to test the bot bridge itself without opening Telegram, run the built-in mock transport harness:
+
+```bash
+npm run dev:mock
+```
+
+You can also use the CLI/env switch directly:
+
+```bash
+COPILOT_REMOTE_FAKE_TELEGRAM=1 npx copilot-remote
+```
+
+or:
+
+```bash
+npx copilot-remote --fake-telegram
+```
+
+This starts a local stdin/stdout harness that pretends to be Telegram and prints outbound bot traffic to your terminal.
+
+The old `fake-telegram` naming is still accepted in flags/env vars for compatibility, but this harness now lives under `src/testing/` and is intentionally treated as a lightweight dev/test surface—not the source of truth for real Telegram behavior.
+
+Useful commands inside the harness:
+
+- `<text>` — send a normal incoming message
+- `/mock reply <msgId> <text>` — simulate replying to an earlier message
+- `/mock callback <msgId> <data>` — simulate pressing an inline button
+- `/mock reaction <msgId> <emoji>` — simulate a reaction update
+- `/mock file <path> [caption]` — simulate a file upload
+- `/mock topic <threadId> [name]` — switch into a forum topic/thread
+- `/mock topic dm` — switch back to direct-message mode
+
+This is great for testing queueing, button callbacks, reply threading, reactions, and general bridge behavior without touching the real Telegram client.
+
+## Architecture
+
+```
+src/
+  index.ts           — Bridge: commands, streaming, config routing
+  session.ts         — Copilot SDK wrapper (create, send, resume, permissions)
+  telegram.ts        — grammY-based Telegram client
+  client.ts          — Platform-agnostic Client interface
+  config-store.ts    — Persistent config with per-topic overrides
+  store.ts           — Session persistence (JSON)
+  format/            — Markdown → Telegram HTML (ported from OpenClaw)
+    ir.ts            — markdown-it IR parser
+    render.ts        — Style marker renderer
+    telegram.ts      — Telegram HTML with chunking, file ref wrapping
+    chunk.ts         — Text chunking utilities
+  emoji.ts           — Status emoji mapping
+  tools.ts           — Custom tool definitions
+  log.ts             — Minimal logger
+```
+
+Built on [grammY](https://grammy.dev) with auto-retry, hydrate, and parse-mode plugins.
 
 ## License
 

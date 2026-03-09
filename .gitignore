@@ -4,3 +4,7 @@ dist/
 .copilot-remote.json
 .env
 .DS_Store
+
+watchdog.log
+bot.log
+.bot.pid

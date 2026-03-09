@@ -338,13 +338,7 @@ export class TelegramClient implements Client {
 
   async sendButtons(chatId: string, text: string, buttons: Button[][], threadId?: number): Promise<number | null> {
     const markup = {
-      inline_keyboard: buttons.map((row) =>
-        row.map((btn) => ({
-          text: btn.text,
-          callback_data: btn.data,
-          ...(btn.style ? { style: btn.style } : {}),
-        })),
-      ),
+      inline_keyboard: this.toInlineKeyboard(buttons),
     };
     const res = await this.sendText(
       'sendMessage',
@@ -359,13 +353,7 @@ export class TelegramClient implements Client {
   async editButtons(chatId: string, msgId: number, text: string, buttons: Button[][]): Promise<void> {
     const markup = buttons.length
       ? {
-          inline_keyboard: buttons.map((row) =>
-            row.map((btn) => ({
-              text: btn.text,
-              callback_data: btn.data,
-              ...(btn.style ? { style: btn.style } : {}),
-            })),
-          ),
+          inline_keyboard: this.toInlineKeyboard(buttons),
         }
       : { inline_keyboard: [] };
     await this.sendText('editMessageText', { chat_id: chatId, message_id: msgId, reply_markup: markup }, text);
@@ -566,6 +554,15 @@ export class TelegramClient implements Client {
         return null;
       }
     }
+  }
+
+  private toInlineKeyboard(buttons: Button[][]): Array<Array<{ text: string; callback_data: string }>> {
+    return buttons.map((row) =>
+      row.map((btn) => ({
+        text: btn.text,
+        callback_data: btn.data,
+      })),
+    );
   }
 
 
