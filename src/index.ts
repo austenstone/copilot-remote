@@ -11,7 +11,7 @@ import { TelegramClient } from './telegram.js';
 import { SessionStore } from './store.js';
 import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { discoverAgents } from './agent-discovery.js';
-import { loadMcpServers, formatServerLine, addServer, removeServer, parseQuickAdd, type MCPServerConfig } from './mcp-config.js';
+import { loadMcpServers, formatServerLine, getConfigPaths } from './mcp-config.js';
 import { handleAgentCallback } from './agent-menu.js';
 import { handleCdCommand } from './cd-command.js';
 import { handleIncomingFileUpload } from './file-intake.js';
@@ -283,7 +283,7 @@ async function main(): Promise<void> {
       }),
     );
     sessionStore.delete(chatId);
-    sessionStore.deleteWorkDir(chatId);
+    // Keep workDir — it's a per-chat preference, not per-session
   }
 
   // Get or create session
@@ -1161,39 +1161,6 @@ async function main(): Promise<void> {
       case '/mcp': {
         const sub = args[0]?.toLowerCase();
 
-        // /mcp add <name> <command-or-url>
-        if (sub === 'add') {
-          const name = args[1];
-          const rest = args.slice(2).join(' ');
-          if (!name || !rest) {
-            await client.sendMessage(chatId, 'Usage: `/mcp add <name> <command...>` or `/mcp add <name> <url>`');
-            break;
-          }
-          const parsed = parseQuickAdd(rest);
-          if (!parsed) {
-            await client.sendMessage(chatId, '❌ Could not parse server config.');
-            break;
-          }
-          addServer(name, parsed);
-          await client.sendMessage(chatId, '✅ Added MCP server `' + name + '`\n' + formatServerLine(name, parsed) + '\n\n_Use /new to apply._');
-          break;
-        }
-
-        // /mcp remove <name>
-        if (sub === 'remove' || sub === 'rm') {
-          const name = args[1];
-          if (!name) {
-            await client.sendMessage(chatId, 'Usage: `/mcp remove <name>`');
-            break;
-          }
-          if (removeServer(name)) {
-            await client.sendMessage(chatId, '🗑 Removed MCP server `' + name + '`. Use /new to apply.');
-          } else {
-            await client.sendMessage(chatId, '❌ Server `' + name + '` not found in config.');
-          }
-          break;
-        }
-
         // /mcp tools — list tools from MCP servers in the active session
         if (sub === 'tools') {
           const s = sessions.get(chatId);
@@ -1231,15 +1198,24 @@ async function main(): Promise<void> {
         // /mcp (default) — show configured servers with details
         const { merged: mcpMerged, sources: mcpSources } = loadMcpServers(configStore.raw().mcpServers, workDir(chatId));
         const mcpNames = Object.keys(mcpMerged);
+        const cfgPaths = getConfigPaths(workDir(chatId));
+        const pathList = cfgPaths.map(p => '`' + p.replace(process.env.HOME ?? '', '~') + '`').join('\n');
         if (!mcpNames.length) {
-          await client.sendMessage(chatId, '🔌 No MCP servers configured.\n\n_Add one:_ `/mcp add <name> <command...>`');
+          await client.sendMessage(
+            chatId,
+            '🔌 No MCP servers configured.\n\n'
+            + 'Add servers as JSON in any of these files:\n' + pathList
+            + '\n\nExample (`~/.copilot/mcp-config.json`):\n'
+            + '```json\n{\n  "mcpServers": {\n    "my-server": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-example"]\n    }\n  }\n}\n```\n'
+            + '_Then /new to start a session with the new servers._',
+          );
         } else {
           const lines = mcpNames.map(n => formatServerLine(n, mcpMerged[n]));
           const srcList = mcpSources.map(s => '`' + s.name + '`').join(', ');
           await client.sendMessage(
             chatId,
             '🔌 *MCP Servers* (' + mcpNames.length + ')\n\n' + lines.join('\n\n') +
-            '\n\n_Sources: ' + srcList + '_\n_Commands: /mcp tools · /mcp add · /mcp remove_',
+            '\n\n_Sources: ' + srcList + '_\n_Commands: /mcp tools_',
           );
         }
         break;

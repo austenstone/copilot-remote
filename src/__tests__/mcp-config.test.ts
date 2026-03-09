@@ -6,9 +6,7 @@ import * as os from 'os';
 import {
   loadMcpServers,
   formatServerLine,
-  addServer,
-  removeServer,
-  parseQuickAdd,
+  getConfigPaths,
   type MCPLocalServerConfig,
   type MCPRemoteServerConfig,
 } from '../mcp-config.js';
@@ -171,40 +169,20 @@ describe('mcp-config', () => {
     });
   });
 
-  describe('parseQuickAdd', () => {
-    it('parses HTTP URL', () => {
-      const cfg = parseQuickAdd('https://api.example.com/mcp');
-      assert.ok(cfg);
-      assert.equal((cfg as MCPRemoteServerConfig).type, 'http');
-      assert.equal((cfg as MCPRemoteServerConfig).url, 'https://api.example.com/mcp');
-      assert.deepEqual(cfg.tools, ['*']);
+  describe('getConfigPaths', () => {
+    it('returns expected config file paths', () => {
+      const paths = getConfigPaths('/my/project');
+      assert.ok(paths.length >= 5);
+      assert.ok(paths.some(p => p.includes('.copilot-remote')));
+      assert.ok(paths.some(p => p.includes('mcp-config.json')));
+      assert.ok(paths.some(p => p.endsWith('.mcp.json')));
     });
 
-    it('parses command string', () => {
-      const cfg = parseQuickAdd('npx -y @modelcontextprotocol/server-filesystem /tmp');
-      assert.ok(cfg);
-      const local = cfg as MCPLocalServerConfig;
-      assert.equal(local.command, 'npx');
-      assert.deepEqual(local.args, ['-y', '@modelcontextprotocol/server-filesystem', '/tmp']);
-      assert.deepEqual(local.tools, ['*']);
-    });
-
-    it('returns null for empty input', () => {
-      assert.equal(parseQuickAdd(''), null);
-      assert.equal(parseQuickAdd('   '), null);
-    });
-  });
-
-  describe('addServer / removeServer', () => {
-    // These write to ~/.copilot-remote/config.json — integration-level.
-    // We test the parseQuickAdd + format pipeline instead of hitting disk in CI.
-
-    it('parseQuickAdd produces valid config for addServer', () => {
-      const cfg = parseQuickAdd('node server.js');
-      assert.ok(cfg);
-      const local = cfg as MCPLocalServerConfig;
-      assert.equal(local.command, 'node');
-      assert.deepEqual(local.args, ['server.js']);
+    it('includes workdir-specific paths when workDir is provided', () => {
+      const withWork = getConfigPaths('/my/project');
+      const without = getConfigPaths();
+      assert.ok(withWork.length > without.length);
+      assert.ok(withWork.some(p => p.startsWith('/my/project')));
     });
   });
 

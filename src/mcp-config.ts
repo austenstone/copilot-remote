@@ -266,53 +266,17 @@ export function formatServerLine(name: string, cfg: MCPServerConfig): string {
   return `${icon} \`${name}\` — ${detail}\n   _Tools: ${toolsStr}_`;
 }
 
-/** Add a server to the copilot-remote config.json */
-export function addServer(name: string, config: MCPServerConfig): void {
-  let data: Record<string, unknown> = {};
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-    }
-  } catch { /* start fresh */ }
-
-  const servers = (data.mcpServers ?? {}) as Record<string, unknown>;
-  servers[name] = config;
-  data.mcpServers = servers;
-
-  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2) + '\n');
-}
-
-/** Remove a server from the copilot-remote config.json */
-export function removeServer(name: string): boolean {
-  try {
-    if (!fs.existsSync(CONFIG_FILE)) return false;
-    const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-    const servers = (data.mcpServers ?? {}) as Record<string, unknown>;
-    if (!(name in servers)) return false;
-    delete servers[name];
-    data.mcpServers = servers;
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2) + '\n');
-    return true;
-  } catch {
-    return false;
+/** Return the config file paths that loadMcpServers reads from (standard locations first, copilot-remote fallback last) */
+export function getConfigPaths(workDir?: string): string[] {
+  const home = process.env.HOME ?? '~';
+  const paths: string[] = [
+    path.join(home, '.copilot', 'mcp-config.json'),
+    path.join(home, '.vscode', 'mcp.json'),
+  ];
+  if (workDir) {
+    paths.push(path.join(workDir, '.vscode', 'mcp.json'));
+    paths.push(path.join(workDir, '.mcp.json'));
   }
-}
-
-/** Parse a quick-add string like "npx -y @modelcontextprotocol/server-filesystem /tmp" into an MCPLocalServerConfig */
-export function parseQuickAdd(input: string): MCPLocalServerConfig | MCPRemoteServerConfig | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  // HTTP/SSE URL
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return { type: 'http', url: trimmed, tools: ['*'] };
-  }
-  // Command string
-  const parts = trimmed.split(/\s+/);
-  if (!parts.length) return null;
-  return {
-    command: parts[0],
-    args: parts.slice(1),
-    tools: ['*'],
-  };
+  paths.push(CONFIG_FILE);
+  return paths;
 }
