@@ -17,7 +17,10 @@ describe('discoverAgents', () => {
     );
 
     try {
+      const origHome = process.env.HOME;
+      process.env.HOME = tempDir; // isolate from global agents
       const agents = discoverAgents(tempDir);
+      process.env.HOME = origHome;
       assert.equal(agents.length, 1);
       assert.equal(agents[0]?.name, 'notes');
       assert.equal(agents[0]?.description, 'Notes agent');
