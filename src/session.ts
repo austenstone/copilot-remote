@@ -315,7 +315,7 @@ export class Session extends EventEmitter {
     const d = e.data as SessionEventData;
     switch (e.type) {
       case 'assistant.message_delta':
-        this.emit('delta', d.content ?? d.text ?? '');
+        this.emit('delta', d.deltaContent ?? d.content ?? d.text ?? '');
         break;
       case 'assistant.reasoning_delta':
         this.emit('thinking', d.deltaContent ?? d.content ?? d.text ?? '');
