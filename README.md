@@ -12,6 +12,21 @@ Conceptually, this is a lot like [Claude Code Remote Control's requirements](htt
 npx copilot-remote
 ```
 
+### Hackable Mode
+
+Want to hack on the source? Install in hackable mode — runs from TypeScript source with `tsx watch`, auto-reloads on file changes, and enables self-development features:
+
+```bash
+# One-liner
+curl -fsSL https://raw.githubusercontent.com/tag-assistant/copilot-remote/main/install.sh | bash -s -- --hackable
+
+# Or clone + run
+git clone https://github.com/tag-assistant/copilot-remote.git
+cd copilot-remote && npm install && npm run dev
+```
+
+In hackable mode the bot watches config, MCP, agents, and skills for changes and auto-restarts via launchd/systemd. Edit `~/.copilot-remote/src/`, save, and it reloads.
+
 For a no-Telegram local mock harness, run:
 
 ```bash
