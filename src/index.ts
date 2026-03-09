@@ -861,7 +861,6 @@ async function main(): Promise<void> {
       const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
       react(LIFECYCLE_REACTIONS.error);
       const userMsg = errMsg.includes('STREAM_DESTROYED') ? '💀 Lost connection to Copilot. Send a message to reconnect.'
-        : errMsg.includes('idle timeout') ? '⏱️ Session timed out (no activity for 5 min). Send a message to start fresh.'
         : errMsg.includes('timeout') ? '⏱️ Request timed out. Send a message to try again.'
         : '❌ `' + errMsg.slice(0, 200) + '`\nSend a message to start a new session.';
       await client.sendMessage(chatId, userMsg, { replyTo: msgId });
