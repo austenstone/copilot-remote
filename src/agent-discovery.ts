@@ -3,13 +3,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { MCPServerConfig } from './mcp-config.js';
+
 export interface DiscoveredAgent {
   name: string;
   displayName?: string;
   description?: string;
   tools?: string[] | null;
   prompt: string;
-  mcpServers?: Record<string, unknown>;
+  mcpServers?: Record<string, MCPServerConfig>;
   infer?: boolean;
   source: string; // file path
 }

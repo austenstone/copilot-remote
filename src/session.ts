@@ -17,6 +17,7 @@ export type FileAttachment = NonNullable<MessageOptions['attachments']>[number];
 import { EventEmitter } from 'events';
 import { log } from './log.js';
 import type { RemoteProviderConfig } from './provider-config.js';
+import type { MCPServerConfig } from './mcp-config.js';
 import { createTelegramTools } from './tools.js';
 
 /** Reasoning effort levels supported by the SDK */
@@ -87,6 +88,8 @@ export interface PlanResponse {
 /** Tool info from the tools API */
 export interface ToolInfo {
   name: string;
+  namespacedName?: string;
+  description?: string;
   [key: string]: unknown;
 }
 
@@ -117,7 +120,7 @@ export interface SessionOptions {
   messageMode?: 'enqueue' | 'immediate';
   // Global config passthrough
   provider?: RemoteProviderConfig;
-  mcpServers?: Record<string, unknown>;
+  mcpServers?: Record<string, MCPServerConfig>;
   customAgents?: unknown[];
   skillDirectories?: string[];
   disabledSkills?: string[];
@@ -310,7 +313,7 @@ export class Session extends EventEmitter {
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
       ...(opts.provider ? { provider: opts.provider } : {}),
-      ...(opts.mcpServers ? { mcpServers: opts.mcpServers as SessionConfig['mcpServers'] } : {}),
+      ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}),
       ...(opts.customAgents ? { customAgents: opts.customAgents as SessionConfig['customAgents'] } : {}),
       ...(opts.skillDirectories ? { skillDirectories: opts.skillDirectories } : {}),
       ...(opts.disabledSkills ? { disabledSkills: opts.disabledSkills } : {}),

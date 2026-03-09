@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import type { MCPServerConfig } from './mcp-config.js';
 import { log } from './log.js';
 import { resolveProviderConfig, type RemoteProviderConfig } from './provider-config.js';
 
@@ -33,7 +34,7 @@ export interface ChatConfig {
 export interface GlobalConfig {
   cliUrl?: string;
   provider?: RemoteProviderConfig;
-  mcpServers?: Record<string, unknown>;
+  mcpServers?: Record<string, MCPServerConfig>;
   customAgents?: unknown[];
   skillDirectories?: string[];
   disabledSkills?: string[];
