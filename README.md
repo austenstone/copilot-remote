@@ -19,6 +19,7 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 - **Streaming** — edit-in-place responses with typing indicators
 - **Tool calls** — see file reads, edits, shell commands as they happen
 - **Inline permissions** — approve/deny with buttons, reactions, or reply text
+- **Queued messages by default** — follow-up Telegram messages wait their turn instead of silently steering the current one
 - **Three modes** — Interactive (approve each), Plan (review first), Autopilot (approve all)
 - **Model switching** — pick from available models via `/config`
 - **Reasoning effort** — off/low/medium/high per model capability
@@ -65,6 +66,7 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
   "showThinking": false,
   "showTools": true,
   "showReactions": true,
+  "messageMode": "enqueue",
   "autoApprove": {
     "read": true,
     "shell": false,
@@ -74,6 +76,13 @@ GitHub auth is auto-detected from `gh auth login`. If the logged-in account does
 ```
 
 Only `botToken` is required. Everything else has sensible defaults.
+
+`messageMode` controls what happens if you send another Telegram message while Copilot is still working:
+
+- `enqueue` — queue it as the next normal prompt
+- `immediate` — inject it into the in-flight turn as a steering message
+
+For a plain phone relay, `enqueue` is the sane default.
 
 ## Forum Topics (Multi-Session)
 

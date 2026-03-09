@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigStore, DEFAULT_CONFIG } from '../config-store.js';
+import { ConfigStore, DEFAULT_CONFIG, normalizeMessageMode } from '../config-store.js';
 
 describe('ConfigStore', () => {
   // Note: ConfigStore reads from ~/.copilot-remote/config.json at construction.
@@ -79,8 +79,15 @@ describe('ConfigStore', () => {
   it('DEFAULT_CONFIG has sensible defaults', () => {
     assert.equal(DEFAULT_CONFIG.autopilot, false);
     assert.equal(DEFAULT_CONFIG.showReactions, true);
+    assert.equal(DEFAULT_CONFIG.messageMode, 'enqueue');
     assert.equal(DEFAULT_CONFIG.autoApprove.read, true);
     assert.equal(DEFAULT_CONFIG.autoApprove.shell, false);
     assert.equal(DEFAULT_CONFIG.autoApprove.write, false);
+  });
+
+  it('normalizes legacy blank message mode to enqueue', () => {
+    assert.equal(normalizeMessageMode(''), 'enqueue');
+    assert.equal(normalizeMessageMode(undefined), 'enqueue');
+    assert.equal(normalizeMessageMode('immediate'), 'immediate');
   });
 });

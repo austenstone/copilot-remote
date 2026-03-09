@@ -274,7 +274,6 @@ export class Session extends EventEmitter {
         },
         onPreToolUse: async (input: { toolName?: string; arguments?: unknown }) => {
           this.emit('hook:pre_tool', { toolName: input.toolName, arguments: input.arguments });
-          return { permissionDecision: 'allow' as const };
         },
         onPostToolUse: async (input: { toolName?: string; result?: unknown }) => {
           this.emit('hook:post_tool', { toolName: input.toolName, result: input.result });

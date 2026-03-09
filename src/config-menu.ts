@@ -8,6 +8,10 @@ import { PERM_KIND_LABELS } from './constants.js';
 import { log } from './log.js';
 import type { SessionStore } from './store.js';
 
+function messageModeLabel(mode: ChatConfig['messageMode']): string {
+  return mode === 'immediate' ? 'Interrupt current turn' : 'Queue next message';
+}
+
 export interface ConfigMenuDeps {
   client: Client;
   configStore: ConfigStore;
@@ -46,7 +50,7 @@ export async function sendConfigMenu(chatId: string, deps: ConfigMenuDeps, editI
     }],
     [{ text: '🤖 Change Model', data: pfx(chatId, 'cfg:modelPicker') }],
     [{ text: `🧠 Reasoning: ${c.reasoningEffort || 'Default'}`, data: pfx(chatId, 'cfg:reasoning') }],
-    [{ text: `📨 Messages: ${c.messageMode || 'Default'}`, data: pfx(chatId, 'cfg:messageMode') }],
+    [{ text: `📨 Messages: ${messageModeLabel(c.messageMode)}`, data: pfx(chatId, 'cfg:messageMode') }],
     [{
       text: '🔧 Tools' + (c.excludedTools?.length ? `: ${c.excludedTools.length} disabled` : ''),
       data: pfx(chatId, 'cfg:tools'),
@@ -288,12 +292,12 @@ export async function handleConfigCallback(
 
   if (data === 'cfg:messageMode') {
     const c = cfg(chatId);
-    const cycle: Array<'' | 'enqueue' | 'immediate'> = ['', 'enqueue', 'immediate'];
-    const idx = cycle.indexOf(c.messageMode || '');
+    const cycle: Array<'enqueue' | 'immediate'> = ['enqueue', 'immediate'];
+    const idx = cycle.indexOf(c.messageMode);
     c.messageMode = cycle[(idx + 1) % cycle.length];
     setCfg(chatId, c);
     const s = sessions.get(chatId);
-    if (s?.alive) s.messageMode = c.messageMode || undefined;
+    if (s?.alive) s.messageMode = c.messageMode;
     await sendConfigMenu(chatId, deps, msgId);
     return true;
   }

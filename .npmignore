@@ -1,9 +1,0 @@
-src/
-.github/
-.eslintrc*
-eslint.config.js
-.prettierrc
-.editorconfig
-tsconfig.json
-.copilot-remote.json
-src/test-cli.ts

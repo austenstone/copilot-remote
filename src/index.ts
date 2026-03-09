@@ -465,8 +465,9 @@ async function main(): Promise<void> {
       }
     }
     const c = cfg(chatId);
-    // Steering: if session is busy (mid-turn), send as immediate to steer the agent
-    if (session.busy && c.messageMode !== 'enqueue') {
+    // Keep relay semantics simple: queue by default, and only steer an in-flight turn
+    // when the user explicitly opts into immediate mode.
+    if (session.busy && c.messageMode === 'immediate') {
       const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).catch(() => {}); } : () => {};
       react('⚡');
       try {
@@ -490,6 +491,14 @@ async function main(): Promise<void> {
     };
     sendTypingSafe();
     const typingInterval = setInterval(() => sendTypingSafe(), 3000);
+
+    // ── Pipeline perf tracking (Node perf_hooks) ──
+    const perfId = `turn-${chatId}-${Date.now()}`;
+    const mark = (name: string) => performance.mark(`${perfId}:${name}`);
+    mark('start');
+    let deltaCount = 0, deltaBytes = 0;
+    let flushCount = 0, flushTotalMs = 0;
+    let tgApiCalls = 0, tgApiTotalMs = 0;
 
     let streamMsgId: number | null = null;
     let draftId: number | null = null;
@@ -518,9 +527,6 @@ async function main(): Promise<void> {
       return p.join('\n\n');
     };
 
-    const streamGeneration = 0;
-    const staleMessageIds: number[] = []; // messages from old generations, cleaned up at finalize
-
     // Minimum chars before sending first streaming message.
     // Prevents premature push notifications (user sees "I" before the full sentence).
     // Pattern adapted from OpenClaw's DRAFT_MIN_INITIAL_CHARS (MIT, github.com/AustenStone/openclaw)
@@ -529,40 +535,53 @@ async function main(): Promise<void> {
     let sendingFirst = false; // mutex: prevent duplicate first-message sends
 
     const flush = async () => {
-      const gen = streamGeneration;
       timer = null;
       lastEdit = Date.now();
+      const flushStart = performance.now();
       const text = display();
-      if (!text.trim()) return;
+      if (!text.trim()) { log.debug('[flush] empty display, responseText:', responseText.length, 'intentText:', intentText.length, 'toolLines:', toolLines.length); return; }
+      if (flushCount === 0) mark('first-flush');
+      flushCount++;
+      log.debug('[flush] #' + flushCount, 'text:', text.length, 'streamMsgId:', streamMsgId, 'sendingFirst:', sendingFirst, 'useDraft:', useDraft);
 
       // Try native draft streaming first
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
+        const tgStart = performance.now();
         const ok = await client.sendDraft(chatId, draftId, text);
-        if (ok) return; // draft sent successfully
+        tgApiCalls++; tgApiTotalMs += performance.now() - tgStart;
+        if (ok) { flushTotalMs += performance.now() - flushStart; return; }
         useDraft = false; // fall back to edit-in-place
       }
 
       // Fallback: send then edit
       if (!streamMsgId) {
-        if (sendingFirst) return; // another flush is already sending the first message
-        if (text.length < MIN_INITIAL_CHARS) return;
+        if (sendingFirst) { log.debug('[flush] blocked by sendingFirst mutex'); return; }
+        if (text.length < MIN_INITIAL_CHARS) { log.debug('[flush] text too short:', text.length); return; }
         sendingFirst = true;
+        log.debug('[flush] sending first message, text:', text.length);
+        const tgStart = performance.now();
         const newMsgId = await client.sendMessage(chatId, text, { disableLinkPreview: true });
+        log.debug('[flush] sendMessage returned:', newMsgId);
+        tgApiCalls++; tgApiTotalMs += performance.now() - tgStart;
         sendingFirst = false;
-        if (gen !== streamGeneration) {
-          if (newMsgId) staleMessageIds.push(newMsgId);
-          return;
-        }
         streamMsgId = newMsgId;
         log.debug('Stream: new message', streamMsgId);
       } else {
         log.debug('Stream: edit message', streamMsgId);
-        // Fire-and-forget edit — don't block the flush loop waiting for Telegram's response
-        client.editMessage(chatId, streamMsgId, text).then(() => {
-          sendTypingSafe(); // re-send typing after edit
-        }).catch(() => {});
+        const tgStart = performance.now();
+        // Use raw edit (plain text, no markdown→HTML) for streaming — fast path
+        const [cid] = resolveKey(chatId);
+        const tc = client as unknown as { editMessageRaw?: (c: string, m: number, t: string) => Promise<void> };
+        const editPromise = tc.editMessageRaw
+          ? tc.editMessageRaw.call(client, cid, streamMsgId, text)
+          : client.editMessage(chatId, streamMsgId, text);
+        editPromise.then(() => {
+          tgApiCalls++; tgApiTotalMs += performance.now() - tgStart;
+          sendTypingSafe();
+        }).catch((e) => { log.debug('Stream edit failed:', e); });
       }
+      flushTotalMs += performance.now() - flushStart;
     };
 
     const schedEdit = () => {
@@ -600,6 +619,8 @@ async function main(): Promise<void> {
     };
 
     const onDelta = (t: string) => {
+      deltaCount++; deltaBytes += t.length;
+      if (deltaCount === 1) mark('first-delta');
       // If still streaming thinking, buffer response until thinking_done
       if (thinkingText && !thinkingDone) {
         pendingResponseText += t;
@@ -772,6 +793,7 @@ async function main(): Promise<void> {
       clearInterval(typingInterval);
 
       const final = res.content;
+      log.debug('[finalize] streamMsgId:', streamMsgId, 'final length:', final.length);
 
       // Finalize: send the complete response
       // If thinking is still streaming (no response came), transition now
@@ -779,25 +801,35 @@ async function main(): Promise<void> {
         completedThinkingText = thinkingText;
         thinkingText = '';
       }
-      // Clean up any stale messages from old generations
-      for (const id of staleMessageIds) {
-        client.deleteMessage?.(chatId, id).catch(() => {});
-      }
       // Materialize: convert streaming message into final response in-place when possible.
       // This avoids the visible delete+send flash that breaks reading flow.
       const chunks = final ? (await import('./format.js')).markdownToTelegramChunks(final, 4096) : [];
       if (streamMsgId && chunks.length <= 1) {
         // Single chunk — edit the existing stream message in-place (materialize)
+        log.debug('[finalize] materialize edit msgId:', streamMsgId);
         await client.editMessage(chatId, streamMsgId, final);
       } else if (streamMsgId) {
         // Multi-chunk — must delete stream msg and send fresh (can't edit into multiple messages)
+        log.debug('[finalize] multi-chunk: delete + resend');
         await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       } else {
+        log.debug('[finalize] no streamMsgId, sending fresh');
         await client.sendMessage(chatId, final, { disableLinkPreview: true });
       }
       react(LIFECYCLE_REACTIONS.complete);
+      // Pipeline perf summary
+      mark('end');
+      const dur = (a: string, b: string) => {
+        try { return performance.measure(`${perfId}:${a}→${b}`, `${perfId}:${a}`, `${perfId}:${b}`).duration.toFixed(0); }
+        catch { return '-'; }
+      };
+      log.info(`[perf] total=${dur('start','end')}ms ttfd=${dur('start','first-delta')}ms ttff=${dur('start','first-flush')}ms deltas=${deltaCount}(${deltaBytes}B) flushes=${flushCount}(${flushTotalMs.toFixed(0)}ms) tgApi=${tgApiCalls}(${tgApiTotalMs.toFixed(0)}ms) response=${responseText.length}B`);
+      // Cleanup marks
+      performance.clearMarks(`${perfId}:start`); performance.clearMarks(`${perfId}:first-delta`);
+      performance.clearMarks(`${perfId}:first-flush`); performance.clearMarks(`${perfId}:end`);
     } catch (err) {
+      log.error('[finalize] error:', err);
       cleanup();
       clearInterval(typingInterval);
       react(LIFECYCLE_REACTIONS.error);

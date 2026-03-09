@@ -282,7 +282,8 @@ export class TelegramClient implements Client {
           parse_mode: 'HTML',
         });
         lastMsgId = (res as { message_id?: number })?.message_id ?? null;
-      } catch {
+      } catch (e) {
+        log.debug('[Telegram] sendMessage HTML failed:', (e as Error)?.message ?? e);
         // Fallback: send as plain text if HTML fails
         try {
           const res = await this.raw['sendMessage']({
@@ -292,8 +293,8 @@ export class TelegramClient implements Client {
             parse_mode: undefined,
           });
           lastMsgId = (res as { message_id?: number })?.message_id ?? null;
-        } catch {
-          // Skip failed chunk
+        } catch (e2) {
+          log.debug('[Telegram] sendMessage plain text also failed:', (e2 as Error)?.message ?? e2);
         }
       }
     }
@@ -310,12 +311,27 @@ export class TelegramClient implements Client {
       await this.raw['editMessageText']({
         chat_id: chatId, message_id: msgId, text: chunk.html, parse_mode: 'HTML',
       });
-    } catch {
+    } catch (e) {
+      // HTML failed — try plain text
       try {
         await this.raw['editMessageText']({
           chat_id: chatId, message_id: msgId, text: chunk.text, parse_mode: undefined,
         });
-      } catch { /* ignore edit failures during streaming */ }
+      } catch (e2) {
+        log.debug('[Telegram] editMessage failed:', (e2 as Error)?.message ?? e2);
+      }
+    }
+  }
+
+  /** Lightweight edit for streaming — sends plain text, skips markdown→HTML pipeline. */
+  async editMessageRaw(chatId: string, msgId: number, text: string): Promise<void> {
+    const truncated = text.length > MAX_MESSAGE_LENGTH ? text.slice(0, MAX_MESSAGE_LENGTH - 4) + ' ...' : text;
+    try {
+      await this.raw['editMessageText']({
+        chat_id: chatId, message_id: msgId, text: truncated, parse_mode: undefined,
+      });
+    } catch (e) {
+      log.debug('[Telegram] editMessageRaw failed:', (e as Error)?.message ?? e);
     }
   }
 

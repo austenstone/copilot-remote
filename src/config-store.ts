@@ -6,6 +6,11 @@ const CONFIG_DIR = join(process.env.HOME ?? '.', '.copilot-remote');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export type PermKind = 'shell' | 'write' | 'mcp' | 'read' | 'url' | 'custom-tool';
+export type MessageMode = 'enqueue' | 'immediate';
+
+export function normalizeMessageMode(value: unknown): MessageMode {
+  return value === 'immediate' ? 'immediate' : 'enqueue';
+}
 
 export interface ChatConfig {
   showUsage: boolean;
@@ -17,7 +22,7 @@ export interface ChatConfig {
   model: string;
   agent: string | null;
   reasoningEffort: string;
-  messageMode: '' | 'enqueue' | 'immediate';
+  messageMode: MessageMode;
   infiniteSessions: boolean | undefined;
   excludedTools: string[];
   autoApprove: Record<PermKind, boolean>;
@@ -51,7 +56,7 @@ export const DEFAULT_CONFIG: ChatConfig = {
   model: 'claude-sonnet-4',
   agent: null,
   reasoningEffort: '',
-  messageMode: '',
+  messageMode: 'enqueue',
   infiniteSessions: undefined,
   excludedTools: [],
   autoApprove: {
@@ -91,15 +96,20 @@ export class ConfigStore {
 
   /** Update config for a key. If isGlobal, persists to disk. Otherwise, stores as thread override. */
   set(key: string, updates: Partial<ChatConfig>, isGlobal = false): ChatConfig {
+    const normalizedUpdates = { ...updates };
+    if (updates.messageMode !== undefined) {
+      normalizedUpdates.messageMode = normalizeMessageMode(updates.messageMode);
+    }
+
     if (isGlobal) {
-      Object.assign(this.global, updates);
+      Object.assign(this.global, normalizedUpdates);
       if (updates.autoApprove) {
         Object.assign(this.global.autoApprove, updates.autoApprove);
       }
       this.save();
     } else {
       const existing = this.overrides.get(key) ?? {};
-      Object.assign(existing, updates);
+      Object.assign(existing, normalizedUpdates);
       if (updates.autoApprove) {
         existing.autoApprove = { ...(existing.autoApprove ?? {}), ...updates.autoApprove };
       }
@@ -132,6 +142,7 @@ export class ConfigStore {
         return {
           ...DEFAULT_CONFIG,
           ...data,
+          messageMode: normalizeMessageMode(data.messageMode),
           autoApprove: { ...DEFAULT_CONFIG.autoApprove, ...(data.autoApprove ?? {}) },
         };
       }
