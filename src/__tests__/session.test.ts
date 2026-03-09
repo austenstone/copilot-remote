@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Session } from '../session.js';
 
@@ -43,6 +43,14 @@ function createFakeSdkSession(
     },
   };
 }
+
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+afterEach(() => {
+  globalThis.setTimeout = realSetTimeout;
+  globalThis.clearTimeout = realClearTimeout;
+});
 
 describe('Session', () => {
   it('rejects send before the session is started', async () => {
@@ -144,6 +152,34 @@ describe('Session', () => {
 
     const result = await session.handlePermission({ kind: 'write' });
 
+    assert.equal((result as { kind: string }).kind, 'denied-interactively-by-user');
+  });
+
+  it('emits permission_timeout and denies when approval expires', async () => {
+    const session = new Session() as any;
+    const events: string[] = [];
+    let timerCallback: (() => void) | undefined;
+
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void) => {
+      timerCallback = () => callback();
+      return { mocked: true } as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof clearTimeout;
+
+    session.on('permission_request', () => {
+      events.push('request');
+    });
+    session.on('permission_timeout', () => {
+      events.push('timeout');
+    });
+
+    const pending = session.handlePermission({ kind: 'shell' });
+    assert.deepEqual(events, ['request']);
+
+    timerCallback?.();
+
+    const result = await pending;
+    assert.deepEqual(events, ['request', 'timeout']);
     assert.equal((result as { kind: string }).kind, 'denied-interactively-by-user');
   });
 

@@ -13,8 +13,10 @@ import { ConfigStore, type ChatConfig, type PermKind } from './config-store.js';
 import { discoverAgents } from './agent-discovery.js';
 import { handleAgentCallback } from './agent-menu.js';
 import { handleCdCommand } from './cd-command.js';
+import { handleIncomingFileUpload } from './file-intake.js';
 import { log } from './log.js';
 import { resolveProviderConfig } from './provider-config.js';
+import { finalizeStreamResponse } from './stream-lifecycle.js';
 import {
   PROMPT_COMMANDS, TOOL_LABELS, LIFECYCLE_REACTIONS, PERM_ICONS,
   MODE_ICONS,
@@ -843,28 +845,18 @@ async function main(): Promise<void> {
 
       const final = res.content;
       log.debug('[finalize] streamMsgId:', streamMsgId, 'final length:', final.length);
-      // Materialize: convert streaming message into final response in-place when possible.
-      // This avoids the visible delete+send flash that breaks reading flow.
-      const chunks = final ? (await import('./format.js')).markdownToTelegramChunks(final, 4096) : [];
-      if (streamMsgId && chunks.length <= 1) {
-        // Single chunk — edit the existing stream message in-place (materialize)
-        log.debug('[finalize] materialize edit msgId:', streamMsgId);
-        const tgStart = performance.now();
-        await client.editMessage(chatId, streamMsgId, final);
-        noteTelegramCall(tgStart, true);
-      } else if (streamMsgId) {
-        // Multi-chunk — must delete stream msg and send fresh (can't edit into multiple messages)
-        log.debug('[finalize] multi-chunk: delete + resend');
-        await client.deleteMessage?.(chatId, streamMsgId).catch(() => {});
-        const tgStart = performance.now();
-        await client.sendMessage(chatId, final, responseMessageOpts);
-        noteTelegramCall(tgStart, true);
-      } else {
-        log.debug('[finalize] no streamMsgId, sending fresh');
-        const tgStart = performance.now();
-        await client.sendMessage(chatId, final, responseMessageOpts);
-        noteTelegramCall(tgStart, true);
-      }
+      const tgStart = performance.now();
+      const finalization = await finalizeStreamResponse({
+        client,
+        chatId,
+        streamMsgId,
+        final,
+        responseMessageOpts,
+      });
+      if (finalization === 'edited') log.debug('[finalize] materialize edit msgId:', streamMsgId);
+      else if (finalization === 'resent') log.debug('[finalize] multi-chunk: delete + resend');
+      else log.debug('[finalize] no streamMsgId, sending fresh');
+      noteTelegramCall(tgStart, true);
       react(LIFECYCLE_REACTIONS.complete);
       log.info(
         '[perf]',
@@ -1548,60 +1540,36 @@ async function main(): Promise<void> {
   client.onFile = async (fileId, fileName, caption, rawChatId, msgId, threadId) => {
     const chatId = threadId ? sessionKey(rawChatId, threadId) : rawChatId;
     if (!client.getFileUrl) return;
-    const url = await client.getFileUrl(fileId);
-    if (!url) {
-      await client.sendMessage(chatId, '❌ Could not download file.');
-      return;
-    }
-    // Download to temp and tell Copilot about it
-    try {
-      const res = await fetch(url);
-      const buffer = Buffer.from(await res.arrayBuffer());
-      const tmpDir = '/tmp/copilot-remote';
-      fs.mkdirSync(tmpDir, { recursive: true });
-      const tmpPath = tmpDir + '/' + fileName;
-      fs.writeFileSync(tmpPath, buffer);
-
-      // Voice message transcription
-      if (fileName.endsWith('.oga') || fileName.endsWith('.ogg')) {
-        try {
-          const wavPath = tmpPath.replace(/\.(oga|ogg)$/, '.wav');
-          execSync('ffmpeg -y -i ' + JSON.stringify(tmpPath) + ' ' + JSON.stringify(wavPath), { timeout: 10000 });
-          // Use Gemini for transcription (free)
-          const transcript = execSync(
+    await handleIncomingFileUpload(
+      { fileId, fileName, caption, chatId, msgId },
+      {
+        resolveFileUrl: (incomingFileId) => client.getFileUrl!(incomingFileId),
+        download: async (url) => {
+          const res = await fetch(url);
+          return new Uint8Array(await res.arrayBuffer());
+        },
+        ensureTempDir: (dirPath) => {
+          fs.mkdirSync(dirPath, { recursive: true });
+        },
+        writeFile: (filePath, data) => {
+          fs.writeFileSync(filePath, Buffer.from(data));
+        },
+        transcribeAudio: async (filePath) => {
+          const wavPath = filePath.replace(/\.(oga|ogg)$/i, '.wav');
+          execSync('ffmpeg -y -i ' + JSON.stringify(filePath) + ' ' + JSON.stringify(wavPath), { timeout: 10000 });
+          return execSync(
             'gemini -p "Transcribe this audio file exactly. Return ONLY the transcription text, nothing else." ' +
               JSON.stringify(wavPath),
             { timeout: 30000, encoding: 'utf-8' },
           ).trim();
-          if (transcript) {
-            const prompt = caption ? caption + '\n\n(Voice transcription: ' + transcript + ')' : transcript;
-            await handlePrompt(chatId, msgId, prompt);
-            return;
-          }
-        } catch (e) {
-          log.debug('Voice transcription failed:', e);
-          // Fall through to file-based handling
-        }
-      }
-
-      // Check if it's an image file — use SDK attachments for vision support
-      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-      const isImage = imageExts.some((ext) => fileName.toLowerCase().endsWith(ext));
-
-      if (isImage) {
-        const prompt = caption || 'Describe this image.';
-        const attachments: FileAttachment[] = [{ type: 'file' as const, path: tmpPath }];
-        await handlePrompt(chatId, msgId, prompt, attachments);
-        return;
-      }
-
-      const prompt = caption
-        ? caption + '\n\n[Attached file: ' + tmpPath + ']'
-        : 'I sent you a file: ' + tmpPath + '\nPlease read and analyze it.';
-      await handlePrompt(chatId, msgId, prompt);
-    } catch (e) {
-      await client.sendMessage(chatId, '❌ ' + String(e));
-    }
+        },
+        handlePrompt,
+        sendMessage: (targetChatId, text) => client.sendMessage(targetChatId, text).then(() => {}),
+        logDebug: (message, error) => {
+          log.debug(message, error);
+        },
+      },
+    );
   };
 
   // ── Inline query handler — one-shot answers from any chat ──
