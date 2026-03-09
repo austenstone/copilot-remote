@@ -113,6 +113,13 @@ export function collectWatchTargets(opts: {
     }
   }
 
+  // Watch our own compiled entry point so `npm run build` triggers a restart
+  if (settings.enabled) {
+    const entryPoint = new URL(import.meta.url).pathname;
+    const projectRoot = path.resolve(path.dirname(entryPoint), '..');
+    add(path.join(projectRoot, 'dist', 'index.js'));
+  }
+
   return [...targets];
 }
 

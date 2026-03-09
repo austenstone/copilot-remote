@@ -69,9 +69,7 @@ else
 fi
 
 npm install --silent 2>/dev/null
-if [ "$HACKABLE" -eq 0 ]; then
-  npm run build --silent 2>/dev/null
-fi
+npm run build --silent 2>/dev/null
 
 COPILOT_BIN=$(which copilot)
 NODE_BIN=$(which node)
@@ -95,19 +93,20 @@ if [ "$HACKABLE" -eq 1 ]; then
   echo "  🔧 Self-development enabled in config"
 fi
 
-# Build ProgramArguments based on mode
+# ProgramArguments
 if [ "$HACKABLE" -eq 1 ]; then
+  # Hackable: run TypeScript directly via tsx (no watch) for Node 24 ESM compat
   PROG_ARGS="        <string>$NODE_BIN</string>
         <string>$INSTALL_DIR/node_modules/.bin/tsx</string>
-        <string>watch</string>
         <string>src/index.ts</string>"
-  EXTRA_ENV="        <key>LAUNCH_JOB_NAME</key>
-        <string>com.copilot-remote</string>"
 else
+  # Standard: run compiled JS via tsx loader for Node 24 ESM compat
   PROG_ARGS="        <string>$NODE_BIN</string>
-        <string>$INSTALL_DIR/dist/cli.js</string>"
-  EXTRA_ENV=""
+        <string>$INSTALL_DIR/node_modules/.bin/tsx</string>
+        <string>$INSTALL_DIR/dist/index.js</string>"
 fi
+EXTRA_ENV="        <key>LAUNCH_JOB_NAME</key>
+        <string>com.copilot-remote</string>"
 
 # Detect OS
 if [ "$(uname)" = "Darwin" ]; then
@@ -166,7 +165,7 @@ EOF
   echo ""
   echo "  ─────────────────────────────"
   if [ "$HACKABLE" -eq 1 ]; then
-    echo "  Mode:     🔧 Hackable (tsx watch, self-dev)"
+    echo "  Mode:     🔧 Hackable (self-dev, file watching)"
     echo "  Source:   ~/.copilot-remote/src/"
   fi
   echo "  Service:  launchctl list | grep copilot"
@@ -174,8 +173,8 @@ EOF
   echo "  Stop:     launchctl unload $PLIST_PATH"
   echo "  Start:    launchctl load $PLIST_PATH"
   if [ "$HACKABLE" -eq 1 ]; then
-    echo "  Update:   cd ~/.copilot-remote && git pull && npm install"
-    echo "  Hack:     code ~/.copilot-remote  (edit src/, auto-reloads)"
+    echo "  Update:   cd ~/.copilot-remote && git pull && npm install && npm run build"
+    echo "  Hack:     code ~/.copilot-remote  (edit src/, build, auto-restarts)"
   else
     echo "  Update:   cd ~/.copilot-remote && git pull && npm run build"
   fi
@@ -188,11 +187,11 @@ elif command -v systemctl >/dev/null 2>&1; then
   UNIT_PATH="$HOME/.config/systemd/user/copilot-remote.service"
   mkdir -p "$(dirname "$UNIT_PATH")"
 
-  # Build ExecStart based on mode
+  # Hackable: run TypeScript directly, standard: compiled JS
   if [ "$HACKABLE" -eq 1 ]; then
-    EXEC_START="$NODE_BIN $INSTALL_DIR/node_modules/.bin/tsx watch src/index.ts"
+    EXEC_START="$NODE_BIN $INSTALL_DIR/node_modules/.bin/tsx src/index.ts"
   else
-    EXEC_START="$NODE_BIN $INSTALL_DIR/dist/cli.js"
+    EXEC_START="$NODE_BIN $INSTALL_DIR/node_modules/.bin/tsx $INSTALL_DIR/dist/index.js"
   fi
 
   cat > "$UNIT_PATH" << EOF
