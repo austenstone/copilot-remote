@@ -529,7 +529,7 @@ export class Session extends EventEmitter {
 
       // Idle timeout: reset on every SDK event so long-running tool calls don't get killed.
       const ABSOLUTE_TIMEOUT = 600_000; // 10 min
-      const IDLE_TIMEOUT = 120_000; // 2 min of no events
+      const IDLE_TIMEOUT = 300_000; // 5 min of no events
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleReject: ((err: Error) => void) | undefined;
       let idleActive = true;
@@ -539,7 +539,7 @@ export class Session extends EventEmitter {
         if (!idleActive || idlePaused) return;
         if (idleTimer) clearTimeout(idleTimer);
         if (idleReject) {
-          idleTimer = setTimeout(() => idleReject?.(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
+          idleTimer = setTimeout(() => idleReject?.(new Error('Session idle timeout — no activity for 5 minutes')), IDLE_TIMEOUT);
         }
       };
       const pauseIdle = () => { idlePaused = true; if (idleTimer) { clearTimeout(idleTimer); idleTimer = undefined; } };
@@ -552,7 +552,7 @@ export class Session extends EventEmitter {
       const eventHandler = () => { resetIdleTimer(); };
       const idlePromise = new Promise<never>((_resolve, reject) => {
         idleReject = reject;
-        idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 2 minutes')), IDLE_TIMEOUT);
+        idleTimer = setTimeout(() => reject(new Error('Session idle timeout — no activity for 5 minutes')), IDLE_TIMEOUT);
         unsubscribeIdle = this.session!.on(eventHandler);
       });
       // Prevent unhandled rejection when race resolves normally
