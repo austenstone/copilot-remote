@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 (2026-03-10)
+
+### Install & Uninstall
+- **First-class uninstall commands** — `copilot-remote uninstall` and `copilot-remote daemon-uninstall` now route through the bundled installer
+- **Real uninstall mode in the installer** — `install.sh --uninstall` removes the launchd/systemd service and clears `~/.copilot-remote` without prompting for tokens
+- **Accurate uninstall docs** — README and installer output now show the correct local uninstall path for curl-based installs
+
 ## 0.8.0 (2026-03-09)
 
 ### Streaming & Session UX
