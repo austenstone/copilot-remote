@@ -6,7 +6,7 @@
 
 Control GitHub Copilot from Telegram. Full SDK integration — streaming, tool calls, permissions, multi-session forum topics.
 
-Conceptually, this is a lot like [Claude Code Remote Control's requirements](https://code.claude.com/docs/en/remote-control#requirements): the real session keeps running locally on your machine, and your phone is just a remote control surface for that local environment.
+Conceptually, this is a lot like [Claude Code Remote Control](https://code.claude.com/docs/en/remote-control): the real session keeps running locally on your machine, and your phone is just a remote control surface for that local environment.
 
 [![CI](https://github.com/austenstone/copilot-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/austenstone/copilot-remote/actions/workflows/ci.yml)
 
