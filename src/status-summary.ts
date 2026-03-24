@@ -70,9 +70,10 @@ export function formatToolStatus(toolName: string, args?: ToolArguments): ToolSt
   let detail: string | undefined;
   switch (toolName) {
     case 'task':
-      detail = description
-        ?? (agentType ? `\`${clip(agentType, 48)}\` agent` : undefined)
-        ?? (prompt ? clip(prompt, 96) : undefined);
+      detail =
+        description ??
+        (agentType ? `\`${clip(agentType, 48)}\` agent` : undefined) ??
+        (prompt ? clip(prompt, 96) : undefined);
       break;
     case 'bash':
     case 'run_bash':
@@ -80,7 +81,8 @@ export function formatToolStatus(toolName: string, args?: ToolArguments): ToolSt
       break;
     case 'web_fetch':
     case 'web_search':
-      detail = description ?? (url ? toInlineCode(url, 96) : undefined) ?? (pattern ? toInlineCode(pattern, 72) : undefined);
+      detail =
+        description ?? (url ? toInlineCode(url, 96) : undefined) ?? (pattern ? toInlineCode(pattern, 72) : undefined);
       break;
     case 'view':
     case 'read_file':
@@ -94,16 +96,20 @@ export function formatToolStatus(toolName: string, args?: ToolArguments): ToolSt
     case 'grep_search':
     case 'search':
     case 'glob':
-      detail = description ?? (pattern ? toInlineCode(pattern, 72) : undefined) ?? (filePath ? toInlineCode(filePath, 72) : undefined);
+      detail =
+        description ??
+        (pattern ? toInlineCode(pattern, 72) : undefined) ??
+        (filePath ? toInlineCode(filePath, 72) : undefined);
       break;
     default:
-      detail = description
-        ?? (command ? toInlineCode(command, 88) : undefined)
-        ?? (filePath ? toInlineCode(filePath, 88) : undefined)
-        ?? (url ? toInlineCode(url, 88) : undefined)
-        ?? (pattern ? toInlineCode(pattern, 72) : undefined)
-        ?? (agentType ? `\`${clip(agentType, 48)}\`` : undefined)
-        ?? (prompt ? clip(prompt, 96) : undefined);
+      detail =
+        description ??
+        (command ? toInlineCode(command, 88) : undefined) ??
+        (filePath ? toInlineCode(filePath, 88) : undefined) ??
+        (url ? toInlineCode(url, 88) : undefined) ??
+        (pattern ? toInlineCode(pattern, 72) : undefined) ??
+        (agentType ? `\`${clip(agentType, 48)}\`` : undefined) ??
+        (prompt ? clip(prompt, 96) : undefined);
       break;
   }
 
@@ -119,17 +125,22 @@ export function extractAssistantPlan(input: {
   reasoningText?: string;
   toolRequests?: AssistantPlanToolRequestLike[];
 }): AssistantPlanSummary {
-  const toolRequests = (input.toolRequests ?? []).filter((toolRequest): toolRequest is AssistantPlanToolRequestLike & { name: string } => typeof toolRequest?.name === 'string');
+  const toolRequests = (input.toolRequests ?? []).filter(
+    (toolRequest): toolRequest is AssistantPlanToolRequestLike & { name: string } =>
+      typeof toolRequest?.name === 'string',
+  );
   const intentRequest = toolRequests.find((toolRequest) => toolRequest.name === 'report_intent');
   const actionableRequest = toolRequests.find((toolRequest) => toolRequest.name !== 'report_intent');
   const intentText = getString(intentRequest?.arguments?.intent) ?? getString(intentRequest?.arguments?.message);
-  const reasoningSummary = getString(input.reasoningText)
-    ?? (toolRequests.length ? getString(input.content) : undefined);
+  const reasoningSummary =
+    getString(input.reasoningText) ?? (toolRequests.length ? getString(input.content) : undefined);
 
   return {
     intentText,
     thinkingSummary: reasoningSummary ? summarizeReasoning(reasoningSummary) : undefined,
-    activeToolStatus: actionableRequest ? formatToolStatus(actionableRequest.name, actionableRequest.arguments).statusLine : undefined,
+    activeToolStatus: actionableRequest
+      ? formatToolStatus(actionableRequest.name, actionableRequest.arguments).statusLine
+      : undefined,
   };
 }
 
@@ -138,9 +149,10 @@ export function formatSubagentStatus(input: {
   agentDisplayName?: string;
   agentDescription?: string;
 }): SubagentStatusSummary {
-  const displayName = getString(input.agentDisplayName)
-    ?? (getString(input.agentName) ? humanizeAgentName(getString(input.agentName)!) : undefined)
-    ?? 'Agent';
+  const displayName =
+    getString(input.agentDisplayName) ??
+    (getString(input.agentName) ? humanizeAgentName(getString(input.agentName)!) : undefined) ??
+    'Agent';
   return {
     statusLine: `🤖 Starting ${clip(displayName, 72)}`,
   };
@@ -150,7 +162,10 @@ export function summarizeToolCompletionDetail(detail: string | undefined, max = 
   const normalized = getString(detail);
   if (!normalized) return undefined;
   if (/^Intent logged$/i.test(normalized)) return undefined;
-  if (/^Content type .*?cannot be simplified to markdown\./i.test(normalized) || /^Contents of https?:\/\//i.test(normalized)) {
+  if (
+    /^Content type .*?cannot be simplified to markdown\./i.test(normalized) ||
+    /^Contents of https?:\/\//i.test(normalized)
+  ) {
     return 'Fetched content';
   }
   return clip(normalized, max);

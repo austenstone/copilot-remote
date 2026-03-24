@@ -26,17 +26,22 @@ import { resolveProviderConfig } from './provider-config.js';
 import { RestartManager, consumeRestartNotice, persistRestartNotice } from './restart-manager.js';
 import { acquireSingleInstanceLock, createInstanceOwner } from './single-instance.js';
 import { finalizeStreamResponse } from './stream-lifecycle.js';
-import { extractAssistantPlan, formatSubagentStatus, formatToolStatus, summarizeToolCompletionDetail } from './status-summary.js';
+import {
+  extractAssistantPlan,
+  formatSubagentStatus,
+  formatToolStatus,
+  summarizeToolCompletionDetail,
+} from './status-summary.js';
 import { ToolStatusState } from './tool-status-state.js';
 import {
-  PROMPT_COMMANDS, LIFECYCLE_REACTIONS, PERM_ICONS,
+  PROMPT_COMMANDS,
+  LIFECYCLE_REACTIONS,
+  PERM_ICONS,
   MODE_ICONS,
-  type ToolEvent, type UserInputRequest,
+  type ToolEvent,
+  type UserInputRequest,
 } from './constants.js';
-import {
-  sendConfigMenu, handleConfigCallback,
-  type ConfigMenuDeps,
-} from './config-menu.js';
+import { sendConfigMenu, handleConfigCallback, type ConfigMenuDeps } from './config-menu.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -80,12 +85,14 @@ function loadConfig() {
   const botTokenArg = botTokenIdx >= 0 ? args[botTokenIdx + 1] : undefined;
   const cliUrlIdx = args.indexOf('--cli-url');
   const cliUrlArg = cliUrlIdx >= 0 ? args[cliUrlIdx + 1] : undefined;
-  const fakeTelegram = args.includes('--fake-telegram') || file.fakeTelegram === true || process.env.COPILOT_REMOTE_FAKE_TELEGRAM === '1';
+  const fakeTelegram =
+    args.includes('--fake-telegram') || file.fakeTelegram === true || process.env.COPILOT_REMOTE_FAKE_TELEGRAM === '1';
 
   const botToken = botTokenArg ?? file.botToken ?? process.env.COPILOT_REMOTE_BOT_TOKEN;
   const cliUrl = cliUrlArg ?? file.cliUrl ?? process.env.COPILOT_REMOTE_CLI_URL;
   const provider = resolveProviderConfig(file.provider);
-  const githubToken = cliUrl || provider ? undefined : (file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken());
+  const githubToken =
+    cliUrl || provider ? undefined : (file.githubToken ?? process.env.GITHUB_TOKEN ?? resolveGhToken());
   return {
     botToken,
     allowedUsers: file.allowedUsers ?? process.env.COPILOT_REMOTE_ALLOWED_USERS?.split(',').filter(Boolean) ?? [],
@@ -140,8 +147,6 @@ function resolveGhToken(): string | undefined {
   }
 }
 
-
-
 async function main(): Promise<void> {
   const config = loadConfig();
   const configuredLogLevel = config._file?.logging?.level ?? config._file?.logLevel;
@@ -173,11 +178,13 @@ async function main(): Promise<void> {
 
   const selfDev = config._file?.selfDevelopment?.enabled === true;
   log.info(
-    '🚀 Copilot Remote v' + version +
-    (selfDev ? ' (self-dev enabled)' : '') +
-    ' | dir: ' + config.workDir +
-    (config.fakeTelegram ? ' | transport: mock-telegram-harness' : '') +
-    (config.cliUrl ? ' | cli: ' + config.cliUrl : ' | cli: stdio'),
+    '🚀 Copilot Remote v' +
+      version +
+      (selfDev ? ' (self-dev enabled)' : '') +
+      ' | dir: ' +
+      config.workDir +
+      (config.fakeTelegram ? ' | transport: mock-telegram-harness' : '') +
+      (config.cliUrl ? ' | cli: ' + config.cliUrl : ' | cli: stdio'),
   );
   log.info('[logger] level=' + log.getLevel());
 
@@ -189,11 +196,18 @@ async function main(): Promise<void> {
         profilePhoto: config.profilePhoto,
       });
 
-  void Session.prewarmSharedClient({ binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken, provider: config.provider }).then(() => {
-    log.info('Prewarmed Copilot client');
-  }).catch((e) => {
-    log.debug('Copilot client prewarm failed:', e);
-  });
+  void Session.prewarmSharedClient({
+    binary: bin,
+    cliUrl: config.cliUrl,
+    githubToken: config.githubToken,
+    provider: config.provider,
+  })
+    .then(() => {
+      log.info('Prewarmed Copilot client');
+    })
+    .catch((e) => {
+      log.debug('Copilot client prewarm failed:', e);
+    });
 
   // ── Per-chat state ──
   // ── Config ──
@@ -213,7 +227,10 @@ async function main(): Promise<void> {
   let shuttingDown = false;
   let pendingRestartReason: string | null = null;
   // Per-session usage tracking (keyed by session key)
-  const lastUsageMap = new Map<string, { model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; duration: number }>();
+  const lastUsageMap = new Map<
+    string,
+    { model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; duration: number }
+  >();
   const contextInfoMap = new Map<string, { tokenLimit: number; currentTokens: number; messagesLength: number }>();
 
   const collectRestartRecipients = (preferredChatId?: string): string[] => {
@@ -240,7 +257,9 @@ async function main(): Promise<void> {
     onRestartRequired: ({ reason, changedPath }) => {
       const supervisor = restartManager.getStatus().supervisor;
       const details = changedPath ? `\n\nChanged: \`${changedPath}\`` : '';
-      const action = supervisor ? '\n\nSupervisor detected — automatic restart is available.' : '\n\nUse /restart to reload now.';
+      const action = supervisor
+        ? '\n\nSupervisor detected — automatic restart is available.'
+        : '\n\nUse /restart to reload now.';
       for (const chatKey of sessions.keys()) {
         client.sendMessage(chatKey, `♻️ ${reason}${details}${action}`).catch(() => {});
       }
@@ -266,10 +285,18 @@ async function main(): Promise<void> {
   };
 
   // Proxy client methods to resolve composite session keys automatically
-  const proxyMethods = ['sendMessage', 'sendButtons', 'editMessage', 'editButtons', 'sendTyping', 'setReaction', 'removeReaction'] as const;
-  type ProxiedMethod = typeof proxyMethods[number];
+  const proxyMethods = [
+    'sendMessage',
+    'sendButtons',
+    'editMessage',
+    'editButtons',
+    'sendTyping',
+    'setReaction',
+    'removeReaction',
+  ] as const;
+  type ProxiedMethod = (typeof proxyMethods)[number];
   const originals = Object.fromEntries(
-    proxyMethods.map((m) => [m, (client[m] as (...args: unknown[]) => unknown).bind(client)])
+    proxyMethods.map((m) => [m, (client[m] as (...args: unknown[]) => unknown).bind(client)]),
   ) as Record<ProxiedMethod, (...args: unknown[]) => unknown>;
 
   client.sendMessage = (key: string, text: string, opts?: MessageOptions) => {
@@ -320,7 +347,9 @@ async function main(): Promise<void> {
   const workDir = (id: string) => workDirs.get(id) ?? config.workDir;
 
   async function purgeSessionPersistence(chatId: string, explicitSessionId?: string): Promise<void> {
-    const ids = [...new Set([...(explicitSessionId ? [explicitSessionId] : []), ...sessionStore.getSessionIds(chatId)])];
+    const ids = [
+      ...new Set([...(explicitSessionId ? [explicitSessionId] : []), ...sessionStore.getSessionIds(chatId)]),
+    ];
     await Promise.allSettled(
       ids.map(async (sessionId) => {
         try {
@@ -438,7 +467,11 @@ async function main(): Promise<void> {
     });
 
     session.on('react_to', async (info: { messageId: number; emoji: string }) => {
-      try { client.setReaction(chatId, info.messageId, info.emoji); } catch { /* ignore */ }
+      try {
+        client.setReaction(chatId, info.messageId, info.emoji);
+      } catch {
+        /* ignore */
+      }
     });
 
     toolHandler<{ phone: string; firstName: string; lastName?: string }>('contact', async (info) => {
@@ -447,7 +480,8 @@ async function main(): Promise<void> {
     });
 
     session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
-      const msg = info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
+      const msg =
+        info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));
       await client.sendMessage(chatId, `⚠️ *SDK Error:* ${msg}`);
     });
     session.on('hook:session_start', () => log.debug('[hook] Session started for chat', chatId));
@@ -457,7 +491,9 @@ async function main(): Promise<void> {
       if (!title) return;
       const [cid, tid] = resolveKey(chatId);
       if (tid && 'editForumTopic' in client) {
-        (client as unknown as { editForumTopic: (c: string, t: number, n: string) => Promise<void> }).editForumTopic(cid, tid, title).catch(() => {});
+        (client as unknown as { editForumTopic: (c: string, t: number, n: string) => Promise<void> })
+          .editForumTopic(cid, tid, title)
+          .catch(() => {});
       }
     });
   }
@@ -483,24 +519,22 @@ async function main(): Promise<void> {
       provider: globalCfg.provider ?? config.provider,
       mcpServers: (() => {
         const { merged, sources } = loadMcpServers(globalCfg.mcpServers, cwd);
-        if (sources.length) log.info(`Loaded MCP servers from ${sources.map(s => s.name).join(', ')}`);
+        if (sources.length) log.info(`Loaded MCP servers from ${sources.map((s) => s.name).join(', ')}`);
         return Object.keys(merged).length ? merged : undefined;
       })(),
       customAgents: (() => {
         const discovered = discoverAgents(cwd);
         const configAgents = (globalCfg.customAgents ?? []) as Array<{ name: string }>;
-        const configNames = new Set(configAgents.map(a => a.name));
-        const merged = [...configAgents, ...discovered.filter(a => !configNames.has(a.name))];
-        if (discovered.length) log.info(`Discovered ${discovered.length} agent(s): ${discovered.map(a => a.name).join(', ')}`);
+        const configNames = new Set(configAgents.map((a) => a.name));
+        const merged = [...configAgents, ...discovered.filter((a) => !configNames.has(a.name))];
+        if (discovered.length)
+          log.info(`Discovered ${discovered.length} agent(s): ${discovered.map((a) => a.name).join(', ')}`);
         return merged.length ? merged : undefined;
       })(),
       skillDirectories: (() => {
         const dirs = [...(globalCfg.skillDirectories ?? [])];
         const home = process.env.HOME ?? '';
-        const candidates = [
-          path.join(home, '.copilot', 'skills'),
-          path.join(home, '.github', 'skills'),
-        ];
+        const candidates = [path.join(home, '.copilot', 'skills'), path.join(home, '.github', 'skills')];
         for (const d of candidates) {
           if (fs.existsSync(d) && !dirs.includes(d)) {
             dirs.push(d);
@@ -573,7 +607,9 @@ async function main(): Promise<void> {
     sessions,
     sessionStore,
     cachedModels: [],
-    setCachedModels: (models: ModelInfo[]) => { configMenuDeps.cachedModels = models; },
+    setCachedModels: (models: ModelInfo[]) => {
+      configMenuDeps.cachedModels = models;
+    },
     workDir: (id: string) => workDir(id),
     bin,
     getSession,
@@ -622,7 +658,9 @@ async function main(): Promise<void> {
     const MAX_TYPING_FAILS = 3;
     const sendTypingSafe = () => {
       if (typingFails >= MAX_TYPING_FAILS) return;
-      client.sendTyping(chatId).catch(() => { typingFails++; });
+      client.sendTyping(chatId).catch(() => {
+        typingFails++;
+      });
     };
     // Show typing immediately — session creation can take seconds
     sendTypingSafe();
@@ -668,7 +706,11 @@ async function main(): Promise<void> {
       const p: string[] = [];
       if (intentText) p.push('*' + intentText + '*');
       if (thinkingText && showThinking) {
-        const italicLines = thinkingText.trim().split('\n').map(line => line.trim() ? '_' + line.replace(/_/g, '\\_') + '_' : '').join('\n');
+        const italicLines = thinkingText
+          .trim()
+          .split('\n')
+          .map((line) => (line.trim() ? '_' + line.replace(/_/g, '\\_') + '_' : ''))
+          .join('\n');
         p.push(italicLines);
       }
       if (toolLines.length) p.push(toolLines.join('\n'));
@@ -696,8 +738,8 @@ async function main(): Promise<void> {
         useDraft = false;
       }
 
-        const tgStart = performance.now();
-        const sentMsgId = await client.sendMessage(chatId, text, responseMessageOpts);
+      const tgStart = performance.now();
+      const sentMsgId = await client.sendMessage(chatId, text, responseMessageOpts);
       noteTelegramCall(tgStart, sentMsgId !== null);
       streamMsgId = sentMsgId;
       placeholderPrimed = streamMsgId !== null;
@@ -740,7 +782,15 @@ async function main(): Promise<void> {
       session = await getSession(chatId);
       sessionReadyAt = performance.now();
       markTimeline('session', `id=${session.sessionId ?? '-'}`, sessionReadyAt);
-      log.info('[prompt:session]', `req=${promptTraceId}`, `attempt=${attempt}`, `chat=${chatId}`, `msg=${msgId}`, `sessionId=${session.sessionId ?? '-'}`, `busy=${session.busy}`);
+      log.info(
+        '[prompt:session]',
+        `req=${promptTraceId}`,
+        `attempt=${attempt}`,
+        `chat=${chatId}`,
+        `msg=${msgId}`,
+        `sessionId=${session.sessionId ?? '-'}`,
+        `busy=${session.busy}`,
+      );
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       // If reasoning effort not supported, retry without it
@@ -751,10 +801,21 @@ async function main(): Promise<void> {
           session = await getSession(chatId);
           sessionReadyAt = performance.now();
           markTimeline('session', `id=${session.sessionId ?? '-'};retry=no-reasoning-effort`, sessionReadyAt);
-          log.info('[prompt:session]', `req=${promptTraceId}`, `attempt=${attempt}`, `chat=${chatId}`, `msg=${msgId}`, `sessionId=${session.sessionId ?? '-'}`, `busy=${session.busy}`, 'retry=no-reasoning-effort');
+          log.info(
+            '[prompt:session]',
+            `req=${promptTraceId}`,
+            `attempt=${attempt}`,
+            `chat=${chatId}`,
+            `msg=${msgId}`,
+            `sessionId=${session.sessionId ?? '-'}`,
+            `busy=${session.busy}`,
+            'retry=no-reasoning-effort',
+          );
         } catch (err2: unknown) {
           if (typingInterval) clearInterval(typingInterval);
-          await client.sendMessage(chatId, '❌ Session failed: ' + ((err2 as Error)?.message ?? String(err2)), { replyTo: msgId });
+          await client.sendMessage(chatId, '❌ Session failed: ' + ((err2 as Error)?.message ?? String(err2)), {
+            replyTo: msgId,
+          });
           return;
         }
       } else {
@@ -766,7 +827,11 @@ async function main(): Promise<void> {
     // Keep relay semantics simple: queue by default, and only steer an in-flight turn
     // when the user explicitly opts into immediate mode.
     if (session.busy && c.messageMode === 'immediate') {
-      const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).catch(() => {}); } : () => {};
+      const react = c.showReactions
+        ? (e: string) => {
+            client.setReaction(chatId, msgId, e).catch(() => {});
+          }
+        : () => {};
       react('⚡');
       try {
         await session.sendImmediate(prompt, attachments);
@@ -780,7 +845,14 @@ async function main(): Promise<void> {
     client.sendTyping(chatId);
     await primeStreamSurface();
     const turnReservation = session.reserveTurn();
-    const react = c.showReactions ? (e: string) => { client.setReaction(chatId, msgId, e).then(() => sendTypingSafe()).catch(() => {}); } : () => {};
+    const react = c.showReactions
+      ? (e: string) => {
+          client
+            .setReaction(chatId, msgId, e)
+            .then(() => sendTypingSafe())
+            .catch(() => {});
+        }
+      : () => {};
     react(LIFECYCLE_REACTIONS.received);
     sendTypingSafe();
 
@@ -794,7 +866,17 @@ async function main(): Promise<void> {
       lastEdit = Date.now();
       const text = display();
       if (!text.trim()) return;
-      log.debug('[flush]', 'text:', text.length, 'streamMsgId:', streamMsgId, 'sendingFirst:', sendingFirst, 'useDraft:', useDraft);
+      log.debug(
+        '[flush]',
+        'text:',
+        text.length,
+        'streamMsgId:',
+        streamMsgId,
+        'sendingFirst:',
+        sendingFirst,
+        'useDraft:',
+        useDraft,
+      );
 
       // Try native draft streaming first
       if (useDraft && client.sendDraft) {
@@ -812,8 +894,14 @@ async function main(): Promise<void> {
           log.debug('[flush] blocked by progressMaterializing');
           return;
         }
-        if (sendingFirst) { log.debug('[flush] blocked by sendingFirst mutex'); return; }
-        if (text.length < MIN_INITIAL_CHARS) { log.debug('[flush] text too short:', text.length); return; }
+        if (sendingFirst) {
+          log.debug('[flush] blocked by sendingFirst mutex');
+          return;
+        }
+        if (text.length < MIN_INITIAL_CHARS) {
+          log.debug('[flush] text too short:', text.length);
+          return;
+        }
         sendingFirst = true;
         log.debug('[flush] sending first message, text:', text.length);
         const tgStart = performance.now();
@@ -832,15 +920,25 @@ async function main(): Promise<void> {
         const editPromise = tc.editMessageRaw
           ? tc.editMessageRaw.call(client, cid, streamMsgId, text)
           : client.editMessage(chatId, streamMsgId, text);
-        editPromise.then(() => {
-          noteTelegramCall(tgStart, true);
-          sendTypingSafe();
-        }).catch((e) => { log.debug('Stream edit failed:', e); });
+        editPromise
+          .then(() => {
+            noteTelegramCall(tgStart, true);
+            sendTypingSafe();
+          })
+          .catch((e) => {
+            log.debug('Stream edit failed:', e);
+          });
       }
     };
 
     const schedEdit = () => {
-      if (!timer) timer = setTimeout(() => { flush().catch(() => {}); }, Math.max(0, THROTTLE - (Date.now() - lastEdit)));
+      if (!timer)
+        timer = setTimeout(
+          () => {
+            flush().catch(() => {});
+          },
+          Math.max(0, THROTTLE - (Date.now() - lastEdit)),
+        );
     };
 
     const noteFirstStreamEvent = (phase: 'thinking' | 'response', chunk: string) => {
@@ -858,11 +956,7 @@ async function main(): Promise<void> {
       );
     };
 
-    const logCopilotChunk = (
-      kind: 'thinking' | 'response',
-      turnId: string | null | undefined,
-      text: string,
-    ) => {
+    const logCopilotChunk = (kind: 'thinking' | 'response', turnId: string | null | undefined, text: string) => {
       if (log.shouldLog('debug')) {
         log.debug(
           `[copilot:${kind}:chunk]`,
@@ -887,11 +981,7 @@ async function main(): Promise<void> {
       );
     };
 
-    const logCopilotFinal = (
-      kind: 'thinking' | 'response',
-      text: string,
-      maxChars: number,
-    ) => {
+    const logCopilotFinal = (kind: 'thinking' | 'response', text: string, maxChars: number) => {
       const payload = log.shouldLog('debug') ? text : formatPromptLogText(text, maxChars);
       log.info(
         `[copilot:${kind}]`,
@@ -966,16 +1056,24 @@ async function main(): Promise<void> {
       if (t.toolName === 'ask_user') return;
       sendTypingSafe();
       // React based on tool type
-      const toolReaction = t.toolName === 'web_fetch' || t.toolName === 'web_search' ? LIFECYCLE_REACTIONS.web
-        : t.toolName === 'bash' ? LIFECYCLE_REACTIONS.command
-        : t.toolName === 'edit_file' || t.toolName === 'write_file' || t.toolName === 'create_file' ? LIFECYCLE_REACTIONS.file_edit
-        : t.toolName === 'grep_search' || t.toolName === 'search' || t.toolName === 'glob' ? LIFECYCLE_REACTIONS.search
-        : LIFECYCLE_REACTIONS.tool_call;
+      const toolReaction =
+        t.toolName === 'web_fetch' || t.toolName === 'web_search'
+          ? LIFECYCLE_REACTIONS.web
+          : t.toolName === 'bash'
+            ? LIFECYCLE_REACTIONS.command
+            : t.toolName === 'edit_file' || t.toolName === 'write_file' || t.toolName === 'create_file'
+              ? LIFECYCLE_REACTIONS.file_edit
+              : t.toolName === 'grep_search' || t.toolName === 'search' || t.toolName === 'glob'
+                ? LIFECYCLE_REACTIONS.search
+                : LIFECYCLE_REACTIONS.tool_call;
       react(toolReaction);
       // report_intent: show as headline, not a tool line
       if (t.toolName === 'report_intent') {
         const intent = t.arguments?.intent ?? t.arguments?.message ?? '';
-        if (intent) { intentText = String(intent); schedEdit(); }
+        if (intent) {
+          intentText = String(intent);
+          schedEdit();
+        }
         return;
       }
       const statusSummary = formatToolStatus(t.toolName, t.arguments);
@@ -1043,12 +1141,13 @@ async function main(): Promise<void> {
       toolOutputBuffers.delete(key);
       if (t.toolCallId) activeToolCallIds.delete(t.toolCallId);
       activeToolStatuses.delete(t.toolCallId);
-      activeToolStatus = activeToolStatuses.current() || (activeToolCallIds.size === 0 && !responseText ? '🧠 Reviewing results' : '');
+      activeToolStatus =
+        activeToolStatuses.current() || (activeToolCallIds.size === 0 && !responseText ? '🧠 Reviewing results' : '');
       sendTypingSafe(); // re-send typing (Telegram cancels on edit)
       if (t.toolName === 'report_intent' || t.toolName === 'ask_user') return;
       if (!showTools || !toolLines.length) return;
       const lineIndex = t.toolCallId ? toolLineIndexByCallId.get(t.toolCallId) : undefined;
-      const targetIndex = lineIndex ?? (toolLines.length - 1);
+      const targetIndex = lineIndex ?? toolLines.length - 1;
       if (targetIndex < 0 || targetIndex >= toolLines.length) return;
       // Strip partial output from tool line before adding completion mark
       toolLines[targetIndex] = toolLines[targetIndex].split('\n')[0];
@@ -1056,9 +1155,10 @@ async function main(): Promise<void> {
       const duration = elapsed ? ` ${((Date.now() - elapsed) / 1000).toFixed(1)}s` : '';
       if (t.toolCallId) toolStartTimes.delete(t.toolCallId);
       const completionDetail = summarizeToolCompletionDetail(t.detailedContent);
-      const shouldAppendCompletionDetail = completionDetail
-        && !comparableText(toolLines[targetIndex]).includes(comparableText(completionDetail));
-      toolLines[targetIndex] += (t.success !== false ? ' ✓' : ' ✗') + duration + (shouldAppendCompletionDetail ? ` — ${completionDetail}` : '');
+      const shouldAppendCompletionDetail =
+        completionDetail && !comparableText(toolLines[targetIndex]).includes(comparableText(completionDetail));
+      toolLines[targetIndex] +=
+        (t.success !== false ? ' ✓' : ' ✗') + duration + (shouldAppendCompletionDetail ? ` — ${completionDetail}` : '');
       if (t.toolCallId) toolLineIndexByCallId.delete(t.toolCallId);
       void materializeProgressSurface();
       schedEdit();
@@ -1190,7 +1290,11 @@ async function main(): Promise<void> {
           `sessionId=${session.sessionId ?? '-'}`,
           'reason=no-sdk-events-before-timeout',
         );
-        try { session.kill(); } catch { /* ignore */ }
+        try {
+          session.kill();
+        } catch {
+          /* ignore */
+        }
         sessions.delete(chatId);
         await purgeSessionPersistence(chatId, session.sessionId ?? undefined);
         await Session.resetSharedClient(`timeout-no-events req=${promptTraceId} chat=${chatId}`);
@@ -1205,7 +1309,11 @@ async function main(): Promise<void> {
       }
 
       // Kill the broken session so it doesn't linger
-      try { session.kill(); } catch { /* ignore */ }
+      try {
+        session.kill();
+      } catch {
+        /* ignore */
+      }
       sessions.delete(chatId);
       await purgeSessionPersistence(chatId, session.sessionId ?? undefined);
       if (errMsg.toLowerCase().includes('timeout')) {
@@ -1235,9 +1343,11 @@ async function main(): Promise<void> {
         );
       }
       react(LIFECYCLE_REACTIONS.error);
-      const userMsg = errMsg.includes('STREAM_DESTROYED') ? '💀 Lost connection to Copilot. Send a message to reconnect.'
-        : errMsg.includes('timeout') ? '⏱️ Request timed out. Send a message to try again.'
-        : '❌ `' + errMsg.slice(0, 200) + '`\nSend a message to start a new session.';
+      const userMsg = errMsg.includes('STREAM_DESTROYED')
+        ? '💀 Lost connection to Copilot. Send a message to reconnect.'
+        : errMsg.includes('timeout')
+          ? '⏱️ Request timed out. Send a message to try again.'
+          : '❌ `' + errMsg.slice(0, 200) + '`\nSend a message to start a new session.';
       await client.sendMessage(chatId, userMsg, { replyTo: msgId });
       return;
     }
@@ -1377,7 +1487,11 @@ async function main(): Promise<void> {
     switch (cmd) {
       case '/attach': {
         if (!argStr.trim()) {
-          await client.sendMessage(chatId, '🔗 Usage: `/attach <session-id>`\nYou can also paste `copilot --resume <session-id>`.', { replyTo: msgId });
+          await client.sendMessage(
+            chatId,
+            '🔗 Usage: `/attach <session-id>`\nYou can also paste `copilot --resume <session-id>`.',
+            { replyTo: msgId },
+          );
           break;
         }
 
@@ -1392,8 +1506,10 @@ async function main(): Promise<void> {
             restartManager.addWorkDir(cwd);
           },
           createSession: () => new Session(),
-          buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) => buildSessionOptions(targetChatId, cwd, sessionId),
-          registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
+          buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) =>
+            buildSessionOptions(targetChatId, cwd, sessionId),
+          registerSessionListeners: (session, targetChatId) =>
+            registerSessionListeners(session as Session, targetChatId),
         });
         await client.sendMessage(chatId, result.message, { replyTo: msgId });
         break;
@@ -1437,8 +1553,10 @@ async function main(): Promise<void> {
               restartManager.addWorkDir(cwd);
             },
             createSession: () => new Session(),
-            buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) => buildSessionOptions(targetChatId, cwd, sessionId),
-            registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
+            buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) =>
+              buildSessionOptions(targetChatId, cwd, sessionId),
+            registerSessionListeners: (session, targetChatId) =>
+              registerSessionListeners(session as Session, targetChatId),
           });
           await client.sendMessage(chatId, result.message, { replyTo: msgId });
           break;
@@ -1495,10 +1613,12 @@ async function main(): Promise<void> {
           const turns = sessionStore.getTurnCount(entry.sessionId);
           const isCurrent = entry.sessionId === current;
           const isActive = !isCurrent && activeSessions.has(entry.sessionId);
-          const label = (isCurrent ? '▶️ ' : isActive ? '🟢 ' : '🔁 ')
-            + summary
-            + (turns ? ' · ' + turns + ' turns' : '')
-            + ' · ' + ago(entry.lastUsed);
+          const label =
+            (isCurrent ? '▶️ ' : isActive ? '🟢 ' : '🔁 ') +
+            summary +
+            (turns ? ' · ' + turns + ' turns' : '') +
+            ' · ' +
+            ago(entry.lastUsed);
           buttons.push([
             {
               text: label,
@@ -1511,23 +1631,27 @@ async function main(): Promise<void> {
             },
           ]);
         }
-        await client.sendButtons(chatId, '📋 *Sessions*\nTap a row to attach it, or 🆔 to export the raw session id.', buttons);
+        await client.sendButtons(
+          chatId,
+          '📋 *Sessions*\nTap a row to attach it, or 🆔 to export the raw session id.',
+          buttons,
+        );
         break;
       }
       case '/sessionid':
       case '/id': {
         const selectedSessionId = argStr.trim() || sessions.get(chatId)?.sessionId;
         if (!selectedSessionId) {
-          await client.sendMessage(chatId, '🆔 No active session. Use `/sessionid <session-id>` or start one first.', { replyTo: msgId });
+          await client.sendMessage(chatId, '🆔 No active session. Use `/sessionid <session-id>` or start one first.', {
+            replyTo: msgId,
+          });
           break;
         }
 
         const entry = sessionStore.getBySessionId(selectedSessionId);
-        await client.sendMessage(
-          chatId,
-          formatSessionIdMessage(selectedSessionId, entry?.cwd || workDir(chatId)),
-          { replyTo: msgId },
-        );
+        await client.sendMessage(chatId, formatSessionIdMessage(selectedSessionId, entry?.cwd || workDir(chatId)), {
+          replyTo: msgId,
+        });
         break;
       }
       case '/status': {
@@ -1540,9 +1664,9 @@ async function main(): Promise<void> {
         const lines: string[] = [];
 
         // Resume command at the bottom
-          const transportLine = config.cliUrl ? '🔌 External CLI `' + config.cliUrl + '`' : '🖥️ Local CLI `' + bin + '`';
+        const transportLine = config.cliUrl ? '🔌 External CLI `' + config.cliUrl + '`' : '🖥️ Local CLI `' + bin + '`';
 
-          const resumeCmd = s.sessionId ? '\n```\ncopilot --resume ' + s.sessionId + '\n```' : '';
+        const resumeCmd = s.sessionId ? '\n```\ncopilot --resume ' + s.sessionId + '\n```' : '';
 
         // Git branch
         try {
@@ -1571,10 +1695,20 @@ async function main(): Promise<void> {
         const ci = contextInfoMap.get(chatId);
         if (ci) {
           const pct = ci.tokenLimit ? Math.round((ci.currentTokens / ci.tokenLimit) * 100) : 0;
-          const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+          const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
           lines.push('');
           lines.push('**Context Usage**');
-          lines.push('`' + fmt(ci.currentTokens) + '/' + fmt(ci.tokenLimit) + ' tokens (' + pct + '%)` · ' + ci.messagesLength + ' messages');
+          lines.push(
+            '`' +
+              fmt(ci.currentTokens) +
+              '/' +
+              fmt(ci.tokenLimit) +
+              ' tokens (' +
+              pct +
+              '%)` · ' +
+              ci.messagesLength +
+              ' messages',
+          );
         }
 
         // Last turn usage
@@ -1606,14 +1740,30 @@ async function main(): Promise<void> {
                 if (chat.isUnlimitedEntitlement) {
                   lines.push('💬 Chat: ♾️ Unlimited');
                 } else {
-                  lines.push('💬 Chat: `' + (chat.usedRequests ?? chat.used ?? '?') + '/' + (chat.entitlementRequests ?? chat.limit ?? '?') + '` (' + (chat.remainingPercentage ?? chat.remaining_percentage ?? '?') + '% left)');
+                  lines.push(
+                    '💬 Chat: `' +
+                      (chat.usedRequests ?? chat.used ?? '?') +
+                      '/' +
+                      (chat.entitlementRequests ?? chat.limit ?? '?') +
+                      '` (' +
+                      (chat.remainingPercentage ?? chat.remaining_percentage ?? '?') +
+                      '% left)',
+                  );
                 }
               }
               if (completions) {
                 if (completions.isUnlimitedEntitlement) {
                   lines.push('⚡ Completions: ♾️ Unlimited');
                 } else {
-                  lines.push('⚡ Completions: `' + (completions.usedRequests ?? completions.used ?? '?') + '/' + (completions.entitlementRequests ?? completions.limit ?? '?') + '` (' + (completions.remainingPercentage ?? completions.remaining_percentage ?? '?') + '% left)');
+                  lines.push(
+                    '⚡ Completions: `' +
+                      (completions.usedRequests ?? completions.used ?? '?') +
+                      '/' +
+                      (completions.entitlementRequests ?? completions.limit ?? '?') +
+                      '` (' +
+                      (completions.remainingPercentage ?? completions.remaining_percentage ?? '?') +
+                      '% left)',
+                  );
                 }
               }
             }
@@ -1622,9 +1772,11 @@ async function main(): Promise<void> {
           /* ignore */
         }
 
-        const statusText = lines.join("\n") + resumeCmd;
+        const statusText = lines.join('\n') + resumeCmd;
         if (s.sessionId) {
-          await client.sendButtons(chatId, statusText, [[{ text: '🆔 Session ID', data: '@' + chatId + '|sessionid:' + s.sessionId }]]);
+          await client.sendButtons(chatId, statusText, [
+            [{ text: '🆔 Session ID', data: '@' + chatId + '|sessionid:' + s.sessionId }],
+          ]);
         } else {
           await client.sendMessage(chatId, statusText);
         }
@@ -1642,7 +1794,7 @@ async function main(): Promise<void> {
           }
           try {
             const { tools } = await s.listTools();
-            const mcpTools = (tools ?? []).filter(t => t.namespacedName?.includes('/'));
+            const mcpTools = (tools ?? []).filter((t) => t.namespacedName?.includes('/'));
             if (!mcpTools.length) {
               await client.sendMessage(chatId, '🔌 No MCP tools active in this session.');
             } else {
@@ -1657,37 +1809,49 @@ async function main(): Promise<void> {
               const lines: string[] = [];
               for (const [server, toolNames] of grouped) {
                 lines.push('🔌 *' + server + '* (' + toolNames.length + ' tools)');
-                lines.push(toolNames.map(t => '  • `' + t + '`').join('\n'));
+                lines.push(toolNames.map((t) => '  • `' + t + '`').join('\n'));
               }
               await client.sendMessage(chatId, lines.join('\n'));
             }
           } catch (e) {
-            await client.sendMessage(chatId, '❌ Failed to list tools: ' + (e instanceof Error ? e.message : String(e)));
+            await client.sendMessage(
+              chatId,
+              '❌ Failed to list tools: ' + (e instanceof Error ? e.message : String(e)),
+            );
           }
           break;
         }
 
         // /mcp (default) — show configured servers with details
-        const { merged: mcpMerged, sources: mcpSources } = loadMcpServers(configStore.raw().mcpServers, workDir(chatId));
+        const { merged: mcpMerged, sources: mcpSources } = loadMcpServers(
+          configStore.raw().mcpServers,
+          workDir(chatId),
+        );
         const mcpNames = Object.keys(mcpMerged);
         const cfgPaths = getConfigPaths(workDir(chatId));
-        const pathList = cfgPaths.map(p => '`' + p.replace(process.env.HOME ?? '', '~') + '`').join('\n');
+        const pathList = cfgPaths.map((p) => '`' + p.replace(process.env.HOME ?? '', '~') + '`').join('\n');
         if (!mcpNames.length) {
           await client.sendMessage(
             chatId,
-            '🔌 No MCP servers configured.\n\n'
-            + 'Add servers as JSON in any of these files:\n' + pathList
-            + '\n\nExample (`~/.copilot/mcp-config.json`):\n'
-            + '```json\n{\n  "mcpServers": {\n    "my-server": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-example"]\n    }\n  }\n}\n```\n'
-            + '_Then /new to start a session with the new servers._',
+            '🔌 No MCP servers configured.\n\n' +
+              'Add servers as JSON in any of these files:\n' +
+              pathList +
+              '\n\nExample (`~/.copilot/mcp-config.json`):\n' +
+              '```json\n{\n  "mcpServers": {\n    "my-server": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-example"]\n    }\n  }\n}\n```\n' +
+              '_Then /new to start a session with the new servers._',
           );
         } else {
-          const lines = mcpNames.map(n => formatServerLine(n, mcpMerged[n]));
-          const srcList = mcpSources.map(s => '`' + s.name + '`').join(', ');
+          const lines = mcpNames.map((n) => formatServerLine(n, mcpMerged[n]));
+          const srcList = mcpSources.map((s) => '`' + s.name + '`').join(', ');
           await client.sendMessage(
             chatId,
-            '🔌 *MCP Servers* (' + mcpNames.length + ')\n\n' + lines.join('\n\n') +
-            '\n\n_Sources: ' + srcList + '_\n_Commands: /mcp tools_',
+            '🔌 *MCP Servers* (' +
+              mcpNames.length +
+              ')\n\n' +
+              lines.join('\n\n') +
+              '\n\n_Sources: ' +
+              srcList +
+              '_\n_Commands: /mcp tools_',
           );
         }
         break;
@@ -1715,7 +1879,7 @@ async function main(): Promise<void> {
                 s.kill();
                 sessions.delete(chatId);
                 purgeSessionPersistence(chatId, s.sessionId ?? undefined).catch(() => {});
-                client.sendMessage(chatId, '💀 Hard killed — agent didn\'t stop.').catch(() => {});
+                client.sendMessage(chatId, "💀 Hard killed — agent didn't stop.").catch(() => {});
               }
             }, 5000);
           } catch {
@@ -1746,7 +1910,9 @@ async function main(): Promise<void> {
               const listedAgents = r?.agents ?? [];
               const mergedAgents = [
                 ...listedAgents,
-                ...discoveredAgents.filter((candidate) => !listedAgents.some((agent) => (agent.name ?? String(agent)) === candidate.name)),
+                ...discoveredAgents.filter(
+                  (candidate) => !listedAgents.some((agent) => (agent.name ?? String(agent)) === candidate.name),
+                ),
               ];
               const agentPfx = (d: string) => `@${chatId}|${d}`;
               // Also show current agent
@@ -1754,7 +1920,9 @@ async function main(): Promise<void> {
               try {
                 const cur = await s.getCurrentAgent();
                 currentName = cur?.agent?.name ?? '';
-              } catch { /* ignore */ }
+              } catch {
+                /* ignore */
+              }
               if (!mergedAgents.length) {
                 await client.sendMessage(chatId, '🤖 No agents found.');
                 break;
@@ -1773,7 +1941,11 @@ async function main(): Promise<void> {
               if (currentName) {
                 buttons.push([{ text: '❌ Deselect agent', data: agentPfx('agent:__deselect__') }]);
               }
-              await client.sendButtons(chatId, '🤖 *Agents*' + (currentName ? ' (current: `' + currentName + '`)' : ''), buttons);
+              await client.sendButtons(
+                chatId,
+                '🤖 *Agents*' + (currentName ? ' (current: `' + currentName + '`)' : ''),
+                buttons,
+              );
             } catch (e) {
               await client.sendMessage(chatId, '❌ ' + e);
             }
@@ -1783,16 +1955,24 @@ async function main(): Promise<void> {
             const configuredAgents = (g.customAgents ?? []) as Array<{ name?: string }>;
             const custom = [
               ...configuredAgents,
-              ...discoveredAgents.filter((candidate) => !configuredAgents.some((agent) => agent.name === candidate.name)),
+              ...discoveredAgents.filter(
+                (candidate) => !configuredAgents.some((agent) => agent.name === candidate.name),
+              ),
             ];
             if (custom.length) {
               const lines = custom.map((a: unknown) => {
                 const agent = a as { name?: string };
                 return '• `' + (agent.name ?? String(a)) + '`';
               });
-              await client.sendMessage(chatId, '🤖 *Custom Agents*\n' + lines.join('\n') + '\n\nStart a session first to list all agents.');
+              await client.sendMessage(
+                chatId,
+                '🤖 *Custom Agents*\n' + lines.join('\n') + '\n\nStart a session first to list all agents.',
+              );
             } else {
-              await client.sendMessage(chatId, '🤖 No agents configured. Start a session first to list available agents.');
+              await client.sendMessage(
+                chatId,
+                '🤖 No agents configured. Start a session first to list available agents.',
+              );
             }
           }
           break;
@@ -1829,29 +2009,37 @@ async function main(): Promise<void> {
               const name = f.replace('.prompt.md', '');
               const content = fs.readFileSync(path.join(pd, f), 'utf-8');
               // Extract description from YAML frontmatter or first line
-              const descMatch = content.match(/^---\n[\s\S]*?description:\s*(.+)\n[\s\S]*?---/) ?? content.match(/^#\s*(.+)/m);
+              const descMatch =
+                content.match(/^---\n[\s\S]*?description:\s*(.+)\n[\s\S]*?---/) ?? content.match(/^#\s*(.+)/m);
               const desc = descMatch?.[1]?.trim() ?? '';
               prompts.push({ name, path: path.join(pd, f), description: desc });
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
 
         if (!argStr) {
           // List available prompts
           if (!prompts.length) {
-            await client.sendMessage(chatId, '📝 No prompt files found.\n\nCreate `.prompt.md` files in:\n• `.github/prompts/` (repo)\n• `~/.copilot/prompts/` (personal)');
+            await client.sendMessage(
+              chatId,
+              '📝 No prompt files found.\n\nCreate `.prompt.md` files in:\n• `.github/prompts/` (repo)\n• `~/.copilot/prompts/` (personal)',
+            );
             break;
           }
-          const buttons: Button[][] = prompts.map(p => [{
-            text: p.name + (p.description ? ' — ' + p.description.slice(0, 40) : ''),
-            data: '@' + chatId + '|prompt:' + p.name,
-          }]);
+          const buttons: Button[][] = prompts.map((p) => [
+            {
+              text: p.name + (p.description ? ' — ' + p.description.slice(0, 40) : ''),
+              data: '@' + chatId + '|prompt:' + p.name,
+            },
+          ]);
           await client.sendButtons(chatId, '📝 *Prompt Files*', buttons);
           break;
         }
 
         // Run a specific prompt
-        const match = prompts.find(p => p.name === argStr || p.name === args[0]);
+        const match = prompts.find((p) => p.name === argStr || p.name === args[0]);
         if (!match) {
           await client.sendMessage(chatId, '❌ Prompt `' + argStr + '` not found.');
           break;
@@ -1919,10 +2107,15 @@ async function main(): Promise<void> {
           await client.sendMessage(chatId, '🔍 No results for "' + argStr + '"');
           break;
         }
-        const buttons: Button[][] = results.map(r => [{
-          text: (r.summary?.slice(0, 50) ?? r.sessionId.slice(0, 8)) + ' — ' + r.snippet.replace(/<\/?b>/g, '').slice(0, 40),
-          data: '@' + chatId + '|session:' + r.sessionId,
-        }]);
+        const buttons: Button[][] = results.map((r) => [
+          {
+            text:
+              (r.summary?.slice(0, 50) ?? r.sessionId.slice(0, 8)) +
+              ' — ' +
+              r.snippet.replace(/<\/?b>/g, '').slice(0, 40),
+            data: '@' + chatId + '|session:' + r.sessionId,
+          },
+        ]);
         await client.sendButtons(chatId, '🔍 *Results for "' + argStr + '"*', buttons);
         break;
       }
@@ -2174,7 +2367,13 @@ async function main(): Promise<void> {
     // Try to get a one-shot answer from Copilot within Telegram's inline timeout
     try {
       const s = new Session();
-      await s.start({ cwd: config.workDir, binary: bin, cliUrl: config.cliUrl, githubToken: config.githubToken, provider: config.provider });
+      await s.start({
+        cwd: config.workDir,
+        binary: bin,
+        cliUrl: config.cliUrl,
+        githubToken: config.githubToken,
+        provider: config.provider,
+      });
       const res = await Promise.race([
         s.send(query),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
@@ -2251,21 +2450,26 @@ async function main(): Promise<void> {
     }
     // Delegate config-related callbacks to config-menu module
     if (await handleConfigCallback(data, chatId, msgId, callbackId, configMenuDeps)) return;
-    if (await handleAgentCallback(data, chatId, msgId, callbackId, { client, configStore, sessions, getSession })) return;
-    if (await handleSessionCallback(data, chatId, msgId, callbackId, {
-      client,
-      sessions,
-      sessionStore,
-      getWorkDir: workDir,
-      rememberWorkDir: (targetChatId: string, cwd: string) => {
-        workDirs.set(targetChatId, cwd);
-        sessionStore.setWorkDir(targetChatId, cwd);
-        restartManager.addWorkDir(cwd);
-      },
-      createSession: () => new Session(),
-      buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) => buildSessionOptions(targetChatId, cwd, sessionId),
-      registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
-    })) return;
+    if (await handleAgentCallback(data, chatId, msgId, callbackId, { client, configStore, sessions, getSession }))
+      return;
+    if (
+      await handleSessionCallback(data, chatId, msgId, callbackId, {
+        client,
+        sessions,
+        sessionStore,
+        getWorkDir: workDir,
+        rememberWorkDir: (targetChatId: string, cwd: string) => {
+          workDirs.set(targetChatId, cwd);
+          sessionStore.setWorkDir(targetChatId, cwd);
+          restartManager.addWorkDir(cwd);
+        },
+        createSession: () => new Session(),
+        buildResumeOptions: (targetChatId: string, cwd: string, sessionId: string) =>
+          buildSessionOptions(targetChatId, cwd, sessionId),
+        registerSessionListeners: (session, targetChatId) => registerSessionListeners(session as Session, targetChatId),
+      })
+    )
+      return;
 
     // Handle user input responses (from ask_user tool)
     if (data.startsWith('input:')) {

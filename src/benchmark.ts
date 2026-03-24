@@ -66,21 +66,26 @@ async function main() {
   const originalFetch = globalThis.fetch;
   const client = new TelegramClient({ botToken: 'benchmark-token', allowedUsers: [] });
 
-  globalThis.fetch = (async () => ({
-    json: async () => ({ ok: true }),
-  } as unknown as Response)) as typeof fetch;
+  globalThis.fetch = (async () =>
+    ({
+      json: async () => ({ ok: true }),
+    }) as unknown as Response) as typeof fetch;
 
   try {
     const results = await Promise.all([
       benchmark({
         name: 'markdownToHtml(short)',
         iterations: 500,
-        run: () => { markdownToHtml(shortMarkdown); },
+        run: () => {
+          markdownToHtml(shortMarkdown);
+        },
       }),
       benchmark({
         name: 'markdownToTelegramChunks(long)',
         iterations: 150,
-        run: () => { markdownToTelegramChunks(longMarkdown, 4096); },
+        run: () => {
+          markdownToTelegramChunks(longMarkdown, 4096);
+        },
       }),
       benchmark({
         name: 'sendDraft(topic payload only)',
@@ -92,15 +97,17 @@ async function main() {
     ]);
 
     console.log('Telegram performance benchmarks');
-    console.table(results.map((r) => ({
-      benchmark: r.name,
-      iterations: r.iterations,
-      avg_ms: r.avg.toFixed(3),
-      min_ms: r.min.toFixed(3),
-      p50_ms: r.p50.toFixed(3),
-      p95_ms: r.p95.toFixed(3),
-      max_ms: r.max.toFixed(3),
-    })));
+    console.table(
+      results.map((r) => ({
+        benchmark: r.name,
+        iterations: r.iterations,
+        avg_ms: r.avg.toFixed(3),
+        min_ms: r.min.toFixed(3),
+        p50_ms: r.p50.toFixed(3),
+        p95_ms: r.p95.toFixed(3),
+        max_ms: r.max.toFixed(3),
+      })),
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

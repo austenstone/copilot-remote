@@ -40,7 +40,10 @@ function createDeps(initialConfig?: Partial<ChatConfig>) {
     deps: {
       client,
       configStore,
-      sessions: new Map<string, { alive?: boolean; selectAgent?: (name: string) => Promise<void>; deselectAgent?: () => Promise<void> }>(),
+      sessions: new Map<
+        string,
+        { alive?: boolean; selectAgent?: (name: string) => Promise<void>; deselectAgent?: () => Promise<void> }
+      >(),
       getSession: async () => ({ alive: false }),
     },
   };

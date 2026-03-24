@@ -16,11 +16,7 @@ export interface CdCommandDeps {
   getSession: (chatId: string) => Promise<unknown>;
 }
 
-export async function handleCdCommand(
-  arg: string | undefined,
-  chatId: string,
-  deps: CdCommandDeps,
-): Promise<boolean> {
+export async function handleCdCommand(arg: string | undefined, chatId: string, deps: CdCommandDeps): Promise<boolean> {
   if (!arg) {
     await deps.client.sendMessage(chatId, '📂 ' + (deps.workDirs.get(chatId) ?? process.cwd()));
     return true;

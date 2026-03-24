@@ -95,20 +95,28 @@ describe('runCli', () => {
     const env: NodeJS.ProcessEnv = {};
     let started = false;
 
-    const exitCode = await runCli([
-      '--token', 'bot-123',
-      '--github-token', 'gh-123',
-      '--workdir', '/tmp/project',
-      '--binary', '/usr/local/bin/copilot',
-      '--allowed-users', '1,2,3',
-      '--fake-telegram',
-    ], {
-      env,
-      execSync: ((() => '') as unknown) as typeof import('node:child_process').execSync,
-      startMain: async () => {
-        started = true;
+    const exitCode = await runCli(
+      [
+        '--token',
+        'bot-123',
+        '--github-token',
+        'gh-123',
+        '--workdir',
+        '/tmp/project',
+        '--binary',
+        '/usr/local/bin/copilot',
+        '--allowed-users',
+        '1,2,3',
+        '--fake-telegram',
+      ],
+      {
+        env,
+        execSync: (() => '') as unknown as typeof import('node:child_process').execSync,
+        startMain: async () => {
+          started = true;
+        },
       },
-    });
+    );
 
     assert.equal(exitCode, 0);
     assert.equal(started, true);
@@ -125,7 +133,7 @@ describe('runCli', () => {
 
     await runCli([], {
       env,
-      execSync: ((() => 'gh-fallback-token\n') as unknown) as typeof import('node:child_process').execSync,
+      execSync: (() => 'gh-fallback-token\n') as unknown as typeof import('node:child_process').execSync,
       startMain: async () => {},
     });
 

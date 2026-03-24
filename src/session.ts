@@ -218,7 +218,9 @@ export class Session extends EventEmitter {
 
     if (Session.sharedClient) {
       if (Session.sharedClientSignature !== signature) {
-        throw new Error('Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.');
+        throw new Error(
+          'Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.',
+        );
       }
       if (retain) Session.clientRefCount++;
       return Session.sharedClient;
@@ -226,7 +228,9 @@ export class Session extends EventEmitter {
     if (Session.sharedClientStarting) {
       await Session.sharedClientStarting;
       if (Session.sharedClientSignature !== signature) {
-        throw new Error('Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.');
+        throw new Error(
+          'Shared Copilot client already initialized with a different transport config. Restart copilot-remote to switch transports.',
+        );
       }
       if (retain) Session.clientRefCount++;
       return Session.sharedClient!;
@@ -234,20 +238,28 @@ export class Session extends EventEmitter {
     const clientOpts = Session.buildSharedClientOptions(opts);
     const client = new CopilotClient(clientOpts);
     Session.sharedClientSignature = signature;
-    Session.sharedClientStarting = client.start().then(() => {
-      Session.sharedClient = client;
-      Session.sharedClientStarting = null;
-    }).catch((error) => {
-      Session.sharedClientStarting = null;
-      Session.sharedClientSignature = null;
-      throw error;
-    });
+    Session.sharedClientStarting = client
+      .start()
+      .then(() => {
+        Session.sharedClient = client;
+        Session.sharedClientStarting = null;
+      })
+      .catch((error) => {
+        Session.sharedClientStarting = null;
+        Session.sharedClientSignature = null;
+        throw error;
+      });
     await Session.sharedClientStarting;
     if (retain) Session.clientRefCount++;
     return client;
   }
 
-  static async prewarmSharedClient(opts?: { binary?: string; cliUrl?: string; githubToken?: string; provider?: RemoteProviderConfig }): Promise<void> {
+  static async prewarmSharedClient(opts?: {
+    binary?: string;
+    cliUrl?: string;
+    githubToken?: string;
+    provider?: RemoteProviderConfig;
+  }): Promise<void> {
     await Session.getSharedClient(opts, false);
   }
 
@@ -436,17 +448,35 @@ export class Session extends EventEmitter {
           ? { enabled: false }
           : { enabled: true, backgroundCompactionThreshold: 0.8, bufferExhaustionThreshold: 0.95 },
       tools: createTelegramTools({
-        sendNotification: async (text) => { this.emit('notification', text); },
-        sendFile: async (path, caption) => { this.emit('file', { path, caption }); },
-        sendPhoto: async (path, caption) => { this.emit('photo', { path, caption }); },
-        sendLocation: async (lat, lon, title) => { this.emit('location', { lat, lon, title }); },
-        sendVoice: async (path, caption) => { this.emit('voice', { path, caption }); },
-        pinMessage: async (messageId) => { this.emit('pin', { messageId }); },
-        createTopic: async (name, iconColor) => {
-          return new Promise((resolve) => { this.emit('create_topic', { name, iconColor, resolve }); });
+        sendNotification: async (text) => {
+          this.emit('notification', text);
         },
-        react: async (messageId, emoji) => { this.emit('react_to', { messageId, emoji }); },
-        sendContact: async (phone, firstName, lastName) => { this.emit('contact', { phone, firstName, lastName }); },
+        sendFile: async (path, caption) => {
+          this.emit('file', { path, caption });
+        },
+        sendPhoto: async (path, caption) => {
+          this.emit('photo', { path, caption });
+        },
+        sendLocation: async (lat, lon, title) => {
+          this.emit('location', { lat, lon, title });
+        },
+        sendVoice: async (path, caption) => {
+          this.emit('voice', { path, caption });
+        },
+        pinMessage: async (messageId) => {
+          this.emit('pin', { messageId });
+        },
+        createTopic: async (name, iconColor) => {
+          return new Promise((resolve) => {
+            this.emit('create_topic', { name, iconColor, resolve });
+          });
+        },
+        react: async (messageId, emoji) => {
+          this.emit('react_to', { messageId, emoji });
+        },
+        sendContact: async (phone, firstName, lastName) => {
+          this.emit('contact', { phone, firstName, lastName });
+        },
       }),
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
@@ -478,7 +508,12 @@ export class Session extends EventEmitter {
         onPostToolUse: async (input: { toolName?: string; result?: unknown }) => {
           this.emit('hook:post_tool', { toolName: input.toolName, result: input.result });
         },
-        onErrorOccurred: async (input: { error?: unknown; message?: string; errorContext?: string; recoverable?: boolean }) => {
+        onErrorOccurred: async (input: {
+          error?: unknown;
+          message?: string;
+          errorContext?: string;
+          recoverable?: boolean;
+        }) => {
           this.emit('hook:error', { error: input.error, message: input.message });
           // Auto-retry model call errors
           if (input.errorContext === 'model_call') {
@@ -502,7 +537,12 @@ export class Session extends EventEmitter {
     this._autopilot = opts.autopilot ?? false;
     this._messageMode = opts.messageMode;
 
-    this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken, provider: opts.provider });
+    this.client = await Session.getSharedClient({
+      binary: opts.binary,
+      cliUrl: opts.cliUrl,
+      githubToken: opts.githubToken,
+      provider: opts.provider,
+    });
 
     this.session = await this.client.createSession(this.buildConfig(opts) as SessionConfig);
     this._alive = true;
@@ -515,7 +555,10 @@ export class Session extends EventEmitter {
     const sinceLastEventMs = this.lastSdkEventAt === null ? undefined : now - this.lastSdkEventAt;
     this.lastSdkEventAt = now;
     const eventData = (e.data as Record<string, unknown> | undefined) ?? {};
-    log.verbose('[SDK event]', ...formatLogFields({ seq: this.sdkEventSeq, sinceLastEventMs, ...summarizeSdkEvent(e.type, eventData) }));
+    log.verbose(
+      '[SDK event]',
+      ...formatLogFields({ seq: this.sdkEventSeq, sinceLastEventMs, ...summarizeSdkEvent(e.type, eventData) }),
+    );
     log.debug(`[SDK event] ${e.type}:`, JSON.stringify(e.data ?? {}));
     const d = e.data as SessionEventData;
     const text = String(d.deltaContent ?? d.content ?? d.text ?? '');
@@ -547,14 +590,17 @@ export class Session extends EventEmitter {
           const request = toolRequest as Record<string, unknown>;
           const name = typeof request.name === 'string' ? request.name : undefined;
           if (!name) return [];
-          return [{
-            toolCallId: typeof request.toolCallId === 'string' ? request.toolCallId : undefined,
-            name,
-            arguments: request.arguments && typeof request.arguments === 'object'
-              ? request.arguments as Record<string, unknown>
-              : undefined,
-            type: typeof request.type === 'string' ? request.type : undefined,
-          } satisfies AssistantPlanToolRequest];
+          return [
+            {
+              toolCallId: typeof request.toolCallId === 'string' ? request.toolCallId : undefined,
+              name,
+              arguments:
+                request.arguments && typeof request.arguments === 'object'
+                  ? (request.arguments as Record<string, unknown>)
+                  : undefined,
+              type: typeof request.type === 'string' ? request.type : undefined,
+            } satisfies AssistantPlanToolRequest,
+          ];
         });
 
         this.emit('message', content);
@@ -595,7 +641,12 @@ export class Session extends EventEmitter {
         });
         break;
       case 'tool.execution_start':
-        this.emit('tool_start', { turnId: this.activeTurnId, toolCallId: d.toolCallId, toolName: d.name ?? d.toolName, arguments: d.arguments });
+        this.emit('tool_start', {
+          turnId: this.activeTurnId,
+          toolCallId: d.toolCallId,
+          toolName: d.name ?? d.toolName,
+          arguments: d.arguments,
+        });
         break;
       case 'tool.execution_partial_result':
         this.emit('tool_output', {
@@ -658,7 +709,10 @@ export class Session extends EventEmitter {
     return new Promise<PermissionRequestResult>((resolve) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const handler = (approved: boolean) => {
-        if (timer) { clearTimeout(timer); timer = null; }
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
         resolve({ kind: approved ? 'approved' : 'denied-interactively-by-user' } as PermissionRequestResult);
       };
       this.once('permission_response', handler);
@@ -677,7 +731,10 @@ export class Session extends EventEmitter {
     return new Promise<{ answer: string; wasFreeform: boolean }>((resolve) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const handler = (answer: string) => {
-        if (timer) { clearTimeout(timer); timer = null; }
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
         resolve({ answer, wasFreeform: !req.choices?.length });
       };
       this.once('user_input_response', handler);
@@ -695,7 +752,11 @@ export class Session extends EventEmitter {
 
   // ── Core ──
 
-  async send(prompt: string, attachments?: FileAttachment[], reservation = this.reserveTurn()): Promise<CopilotMessage> {
+  async send(
+    prompt: string,
+    attachments?: FileAttachment[],
+    reservation = this.reserveTurn(),
+  ): Promise<CopilotMessage> {
     if (!this._alive) throw new Error('Session not started');
 
     return this.runInSendQueue(async () => {
@@ -722,25 +783,26 @@ export class Session extends EventEmitter {
         if (this._messageMode) sendOpts.mode = this._messageMode;
         if (attachments?.length) sendOpts.attachments = attachments;
 
-          log.verbose(
-            '[SDK sendAndWait:start]',
-            ...formatLogFields({
-              sessionId: this.sessionId,
-              mode: sendOpts.mode ?? 'default',
-              attachments: attachments?.length ?? 0,
-              promptChars: prompt.length,
-            }),
-          );
+        log.verbose(
+          '[SDK sendAndWait:start]',
+          ...formatLogFields({
+            sessionId: this.sessionId,
+            mode: sendOpts.mode ?? 'default',
+            attachments: attachments?.length ?? 0,
+            promptChars: prompt.length,
+          }),
+        );
 
-        const result = await Promise.race([
-          this.session!.sendAndWait(sendOpts),
-          errorPromise,
-        ]);
-          const resultContent = (result as { data?: { content?: string }; content?: string } | undefined)?.data?.content
-            ?? (result as { content?: string } | undefined)?.content
-            ?? '';
-          log.verbose('[SDK sendAndWait:done]', ...formatLogFields({ sessionId: this.sessionId, resultChars: resultContent.length || undefined }));
-          log.debug('sendAndWait result:', JSON.stringify(result));
+        const result = await Promise.race([this.session!.sendAndWait(sendOpts), errorPromise]);
+        const resultContent =
+          (result as { data?: { content?: string }; content?: string } | undefined)?.data?.content ??
+          (result as { content?: string } | undefined)?.content ??
+          '';
+        log.verbose(
+          '[SDK sendAndWait:done]',
+          ...formatLogFields({ sessionId: this.sessionId, resultChars: resultContent.length || undefined }),
+        );
+        log.debug('sendAndWait result:', JSON.stringify(result));
 
         const resultObj = result as Record<string, unknown>;
         const resultData = (resultObj?.data as Record<string, unknown>) ?? {};
@@ -885,7 +947,12 @@ export class Session extends EventEmitter {
     this._messageMode = opts.messageMode;
 
     if (!this.client) {
-      this.client = await Session.getSharedClient({ binary: opts.binary, cliUrl: opts.cliUrl, githubToken: opts.githubToken, provider: opts.provider });
+      this.client = await Session.getSharedClient({
+        binary: opts.binary,
+        cliUrl: opts.cliUrl,
+        githubToken: opts.githubToken,
+        provider: opts.provider,
+      });
     }
 
     this.session = await this.client.resumeSession(sessionId, this.buildConfig(opts) as SessionConfig);

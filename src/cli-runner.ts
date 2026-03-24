@@ -98,9 +98,11 @@ export async function runCli(rawArgs: string[], deps: CliRunnerDeps = {}): Promi
   const warn = deps.warn ?? ((message: string) => console.warn(message));
   const error = deps.error ?? ((message: string) => console.error(message));
   const log = deps.log ?? ((message: string) => console.log(message));
-  const startMain = deps.startMain ?? (async () => {
-    await import('./index.js');
-  });
+  const startMain =
+    deps.startMain ??
+    (async () => {
+      await import('./index.js');
+    });
   const runInstaller = deps.runInstaller ?? defaultRunInstaller;
   const installerPath = deps.installerPath ?? defaultInstallerPath();
 
@@ -109,7 +111,9 @@ export async function runCli(rawArgs: string[], deps: CliRunnerDeps = {}): Promi
     try {
       return runInstaller(installerPath, commandArgs, env);
     } catch (installerError) {
-      error(`Failed to run installer: ${installerError instanceof Error ? installerError.message : String(installerError)}`);
+      error(
+        `Failed to run installer: ${installerError instanceof Error ? installerError.message : String(installerError)}`,
+      );
       return 1;
     }
   }
@@ -118,7 +122,9 @@ export async function runCli(rawArgs: string[], deps: CliRunnerDeps = {}): Promi
     try {
       return runInstaller(installerPath, ['--uninstall', ...commandArgs], env);
     } catch (installerError) {
-      error(`Failed to run uninstaller: ${installerError instanceof Error ? installerError.message : String(installerError)}`);
+      error(
+        `Failed to run uninstaller: ${installerError instanceof Error ? installerError.message : String(installerError)}`,
+      );
       return 1;
     }
   }

@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleCdCommand } from '../cd-command.js';
 
-function createDeps() {
+function _createDeps() {
   const client = {
     sendMessageCalls: [] as Array<{ chatId: string; text: string }>,
     async sendMessage(chatId: string, text: string) {
@@ -70,7 +70,15 @@ describe('handleCdCommand', () => {
     };
     let killed = false;
     const sessions = new Map<string, { alive?: boolean; kill?: () => void | Promise<void> }>([
-      ['chat-1', { alive: true, kill: () => { killed = true; } }],
+      [
+        'chat-1',
+        {
+          alive: true,
+          kill: () => {
+            killed = true;
+          },
+        },
+      ],
     ]);
     const workDirs = new Map<string, string>();
 

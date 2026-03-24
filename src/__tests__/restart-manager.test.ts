@@ -50,8 +50,14 @@ describe('collectWatchTargets', () => {
       config: { selfDevelopment: settings },
     });
 
-    assert.equal(targets.some((target) => target.includes('/agents')), false);
-    assert.equal(targets.some((target) => target.includes('/prompts')), false);
+    assert.equal(
+      targets.some((target) => target.includes('/agents')),
+      false,
+    );
+    assert.equal(
+      targets.some((target) => target.includes('/prompts')),
+      false,
+    );
   });
 });
 
@@ -67,10 +73,17 @@ describe('RestartManager', () => {
       homeDir: '/Users/tester',
       workDirs: ['/workspace/app'],
       settings: { debounceMs: 5 },
-      watchFile: (((target: string) => {
+      watchFile: ((target: string) => {
         watched.push(target);
-        return { ref() { return this; }, unref() { return this; } };
-      }) as unknown) as typeof import('node:fs').watchFile,
+        return {
+          ref() {
+            return this;
+          },
+          unref() {
+            return this;
+          },
+        };
+      }) as unknown as typeof import('node:fs').watchFile,
       unwatchFile: ((target: string) => {
         unwatched.push(target);
       }) as typeof import('node:fs').unwatchFile,
@@ -101,7 +114,14 @@ describe('RestartManager', () => {
       env: {},
       homeDir: '/Users/tester',
       settings: { debounceMs: 5 },
-      watchFile: (((() => ({ ref() { return this; }, unref() { return this; } })) as unknown) as typeof import('node:fs').watchFile),
+      watchFile: (() => ({
+        ref() {
+          return this;
+        },
+        unref() {
+          return this;
+        },
+      })) as unknown as typeof import('node:fs').watchFile,
       unwatchFile: (() => undefined) as typeof import('node:fs').unwatchFile,
       onRequestRestart: () => {
         restartCalls++;
@@ -122,11 +142,14 @@ describe('restart notices', () => {
     const homeDir = mkdtempSync(path.join(tmpdir(), 'copilot-remote-'));
 
     try {
-      const notice = persistRestartNotice({
-        homeDir,
-        reason: 'Manual restart requested',
-        recipients: ['chat-1', 'chat-1', 'chat-2:42'],
-      }, { now: () => 1_000 });
+      const notice = persistRestartNotice(
+        {
+          homeDir,
+          reason: 'Manual restart requested',
+          recipients: ['chat-1', 'chat-1', 'chat-2:42'],
+        },
+        { now: () => 1_000 },
+      );
 
       assert.deepEqual(notice, {
         reason: 'Manual restart requested',
@@ -146,11 +169,14 @@ describe('restart notices', () => {
     const homeDir = mkdtempSync(path.join(tmpdir(), 'copilot-remote-'));
 
     try {
-      persistRestartNotice({
-        homeDir,
-        reason: 'Old restart',
-        recipients: ['chat-1'],
-      }, { now: () => 1_000 });
+      persistRestartNotice(
+        {
+          homeDir,
+          reason: 'Old restart',
+          recipients: ['chat-1'],
+        },
+        { now: () => 1_000 },
+      );
 
       assert.equal(consumeRestartNotice({ homeDir, maxAgeMs: 100 }, { now: () => 2_000 }), null);
     } finally {

@@ -44,18 +44,22 @@ export async function sendConfigMenu(chatId: string, deps: ConfigMenuDeps, editI
     (globalCfg.mcpServers ? `\nMCP: ${Object.keys(globalCfg.mcpServers).length} servers` : '');
 
   const buttons = [
-    [{
-      text: c.autopilot ? '🟢 Autopilot ON' : '🔴 Autopilot OFF',
-      data: pfx(chatId, 'cfg:autopilot'),
-      style: c.autopilot ? 'danger' : 'primary',
-    }],
+    [
+      {
+        text: c.autopilot ? '🟢 Autopilot ON' : '🔴 Autopilot OFF',
+        data: pfx(chatId, 'cfg:autopilot'),
+        style: c.autopilot ? 'danger' : 'primary',
+      },
+    ],
     [{ text: '🤖 Change Model', data: pfx(chatId, 'cfg:modelPicker') }],
     [{ text: `🧠 Reasoning: ${c.reasoningEffort || 'Default'}`, data: pfx(chatId, 'cfg:reasoning') }],
     [{ text: `📨 Messages: ${messageModeLabel(c.messageMode)}`, data: pfx(chatId, 'cfg:messageMode') }],
-    [{
-      text: '🔧 Tools' + (c.excludedTools?.length ? `: ${c.excludedTools.length} disabled` : ''),
-      data: pfx(chatId, 'cfg:tools'),
-    }],
+    [
+      {
+        text: '🔧 Tools' + (c.excludedTools?.length ? `: ${c.excludedTools.length} disabled` : ''),
+        data: pfx(chatId, 'cfg:tools'),
+      },
+    ],
     [{ text: '🔒 Tool Security', data: pfx(chatId, 'cfg:security') }],
     [{ text: '🎨 Display', data: pfx(chatId, 'cfg:display') }],
     [{ text: '📊 Usage', data: pfx(chatId, 'cfg:usage') }],
@@ -78,15 +82,15 @@ export async function sendToolsMenu(chatId: string, editId: number, deps: Config
     try {
       const r = await s.listTools();
       tools = (r?.tools ?? []).map((t: { name?: string }) => t.name).filter((n): n is string => !!n);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   if (!tools.length) {
-    await client.editButtons(
-      chatId, editId,
-      '🔧 *Tools*\nSend a message first to start a session, then open Tools.',
-      [[{ text: '← Back', data: pfx(chatId, 'cfg:back') }]],
-    );
+    await client.editButtons(chatId, editId, '🔧 *Tools*\nSend a message first to start a session, then open Tools.', [
+      [{ text: '← Back', data: pfx(chatId, 'cfg:back') }],
+    ]);
     return;
   }
 
@@ -104,7 +108,8 @@ export async function sendToolsMenu(chatId: string, editId: number, deps: Config
   buttons.push([{ text: '← Back', data: pfx(chatId, 'cfg:back') }]);
 
   await client.editButtons(
-    chatId, editId,
+    chatId,
+    editId,
     `🔧 *Tools* (${tools.length})` + (excluded.size ? `\n${excluded.size} disabled` : '\nAll enabled'),
     buttons,
   );
@@ -120,7 +125,9 @@ export async function sendReasoningMenu(chatId: string, editId: number, deps: Co
       try {
         const models = await s.listModels();
         deps.setCachedModels(models);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -129,7 +136,8 @@ export async function sendReasoningMenu(chatId: string, editId: number, deps: Co
 
   if (!supported.length) {
     await client.editButtons(
-      chatId, editId,
+      chatId,
+      editId,
       `🧠 *Reasoning Effort*\n⚠️ ${c.model} does not support reasoning effort.`,
       [[{ text: '← Back', data: pfx(chatId, 'cfg:back') }]],
     );
@@ -140,14 +148,21 @@ export async function sendReasoningMenu(chatId: string, editId: number, deps: Co
   const levels = ['', ...supported];
   const allLabels: Record<string, string> = { '': 'Default', ...labels };
   const current = c.reasoningEffort || '';
-  const buttons = levels.map((l) => [{
-    text: allLabels[l] ?? l,
-    data: pfx(chatId, `reason:${l || 'default'}`),
-    ...(l === current ? { style: 'success' } : {}),
-  }]);
+  const buttons = levels.map((l) => [
+    {
+      text: allLabels[l] ?? l,
+      data: pfx(chatId, `reason:${l || 'default'}`),
+      ...(l === current ? { style: 'success' } : {}),
+    },
+  ]);
   const defaultNote = modelInfo?.defaultReasoningEffort ? ` (default: ${modelInfo.defaultReasoningEffort})` : '';
   buttons.push([{ text: '← Back', data: pfx(chatId, 'cfg:back') }]);
-  await client.editButtons(chatId, editId, `🧠 *Reasoning Effort*${defaultNote}\nHigher = smarter but slower/costlier:`, buttons);
+  await client.editButtons(
+    chatId,
+    editId,
+    `🧠 *Reasoning Effort*${defaultNote}\nHigher = smarter but slower/costlier:`,
+    buttons,
+  );
 }
 
 export async function sendDisplayMenu(chatId: string, editId: number, deps: ConfigMenuDeps): Promise<void> {
@@ -155,10 +170,15 @@ export async function sendDisplayMenu(chatId: string, editId: number, deps: Conf
   const c = configStore.get(chatId);
 
   const toggle = (on: boolean, label: string, data: string) => ({
-    text: label, data, ...(on ? { style: 'success' } : {}),
+    text: label,
+    data,
+    ...(on ? { style: 'success' } : {}),
   });
   const buttons = [
-    [toggle(c.showThinking, 'Thinking', pfx(chatId, 'dsp:showThinking')), toggle(c.showTools, 'Tools', pfx(chatId, 'dsp:showTools'))],
+    [
+      toggle(c.showThinking, 'Thinking', pfx(chatId, 'dsp:showThinking')),
+      toggle(c.showTools, 'Tools', pfx(chatId, 'dsp:showTools')),
+    ],
     [toggle(c.showReactions, 'Reactions', pfx(chatId, 'dsp:showReactions'))],
     [toggle(c.infiniteSessions !== false, 'Infinite Sessions', pfx(chatId, 'dsp:infiniteSessions'))],
     [{ text: '← Back', data: pfx(chatId, 'cfg:back') }],
@@ -176,11 +196,13 @@ export async function sendSecurityMenu(chatId: string, editId: number, deps: Con
     buttons.push([{ text: label, data: pfx(chatId, `sec:${kind}`), ...(on ? { style: 'success' } : {}) }]);
   }
   const allOn = Object.values(c.autoApprove).every(Boolean);
-  buttons.push([{
-    text: allOn ? 'Revoke All' : 'Approve All',
-    data: pfx(chatId, 'sec:toggle-all'),
-    ...(allOn ? { style: 'danger' } : { style: 'success' }),
-  }]);
+  buttons.push([
+    {
+      text: allOn ? 'Revoke All' : 'Approve All',
+      data: pfx(chatId, 'sec:toggle-all'),
+      ...(allOn ? { style: 'danger' } : { style: 'success' }),
+    },
+  ]);
   buttons.push([{ text: '← Back', data: pfx(chatId, 'cfg:back') }]);
   await client.editButtons(chatId, editId, '🔒 *Tool Security*\nAuto-approve by type:', buttons);
 }
@@ -195,8 +217,13 @@ export async function sendModelPicker(chatId: string, editId: number, deps: Conf
       if (!s?.alive) s = await deps.getSession(chatId);
       const models = await s.listModels();
       deps.setCachedModels(models);
-      log.info('Models:', models.map((m) => m.id ?? m.name ?? m));
-    } catch { /* ignore */ }
+      log.info(
+        'Models:',
+        models.map((m) => m.id ?? m.name ?? m),
+      );
+    } catch {
+      /* ignore */
+    }
   }
 
   const modelIds = deps.cachedModels.length
@@ -259,12 +286,30 @@ export async function handleConfigCallback(
     return true;
   }
 
-  if (data === 'cfg:reasoning') { await sendReasoningMenu(chatId, msgId, deps); return true; }
-  if (data === 'cfg:display') { await sendDisplayMenu(chatId, msgId, deps); return true; }
-  if (data === 'cfg:security') { await sendSecurityMenu(chatId, msgId, deps); return true; }
-  if (data === 'cfg:modelPicker') { await sendModelPicker(chatId, msgId, deps); return true; }
-  if (data === 'cfg:back') { await sendConfigMenu(chatId, deps, msgId); return true; }
-  if (data === 'cfg:tools') { await sendToolsMenu(chatId, msgId, deps); return true; }
+  if (data === 'cfg:reasoning') {
+    await sendReasoningMenu(chatId, msgId, deps);
+    return true;
+  }
+  if (data === 'cfg:display') {
+    await sendDisplayMenu(chatId, msgId, deps);
+    return true;
+  }
+  if (data === 'cfg:security') {
+    await sendSecurityMenu(chatId, msgId, deps);
+    return true;
+  }
+  if (data === 'cfg:modelPicker') {
+    await sendModelPicker(chatId, msgId, deps);
+    return true;
+  }
+  if (data === 'cfg:back') {
+    await sendConfigMenu(chatId, deps, msgId);
+    return true;
+  }
+  if (data === 'cfg:tools') {
+    await sendToolsMenu(chatId, msgId, deps);
+    return true;
+  }
 
   if (data === 'cfg:usage') {
     const s = sessions.get(chatId);
@@ -281,10 +326,13 @@ export async function handleConfigCallback(
             lines.push(`*${name}*: ${used}/${total} · ${pct}% left`);
           }
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     await client.editButtons(
-      chatId, msgId,
+      chatId,
+      msgId,
       '📊 *Usage*\n' + (lines.length ? lines.join('\n') : 'No data yet — send a message first.'),
       [[{ text: '← Back', data: pfx(chatId, 'cfg:back') }]],
     );
@@ -323,7 +371,12 @@ export async function handleConfigCallback(
     c.model = data.slice(6);
     setCfg(chatId, c);
     const s = sessions.get(chatId);
-    if (s?.alive) try { await s.setModel(c.model); } catch { /* ignore */ }
+    if (s?.alive)
+      try {
+        await s.setModel(c.model);
+      } catch {
+        /* ignore */
+      }
     await sendConfigMenu(chatId, deps, msgId);
     return true;
   }

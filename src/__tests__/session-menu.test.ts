@@ -28,12 +28,15 @@ function createDeps() {
 
   const rememberedWorkDirs: Array<{ chatId: string; cwd: string }> = [];
   const registered: Array<{ chatId: string; session: unknown }> = [];
-  const sessions = new Map<string, {
-    alive?: boolean;
-    sessionId?: string | null;
-    disconnect?: () => Promise<void>;
-    resume: (sessionId: string, opts: SessionOptions) => Promise<void>;
-  }>();
+  const sessions = new Map<
+    string,
+    {
+      alive?: boolean;
+      sessionId?: string | null;
+      disconnect?: () => Promise<void>;
+      resume: (sessionId: string, opts: SessionOptions) => Promise<void>;
+    }
+  >();
   const storeWrites: Array<Record<string, unknown>> = [];
   const resumableSession = {
     alive: true,
@@ -133,16 +136,18 @@ describe('handleSessionCallback', () => {
 
     assert.equal(handled, true);
     assert.equal(disconnected, true);
-    assert.deepEqual(resumableSession.resumeCalls, [{
-      sessionId: 'cli-session-1',
-      opts: {
-        cwd: '/tmp/cli-session',
+    assert.deepEqual(resumableSession.resumeCalls, [
+      {
         sessionId: 'cli-session-1',
-        model: 'claude-sonnet-4',
-        autopilot: false,
-        messageMode: 'enqueue',
+        opts: {
+          cwd: '/tmp/cli-session',
+          sessionId: 'cli-session-1',
+          model: 'claude-sonnet-4',
+          autopilot: false,
+          messageMode: 'enqueue',
+        },
       },
-    }]);
+    ]);
     assert.deepEqual(rememberedWorkDirs, [{ chatId: 'chat-1', cwd: '/tmp/cli-session' }]);
     assert.deepEqual(registered, [{ chatId: 'chat-1', session: resumableSession }]);
     assert.equal(sessions.get('chat-1'), resumableSession);
@@ -150,7 +155,11 @@ describe('handleSessionCallback', () => {
     assert.equal(storeWrites[0]?.chatId, 'chat-1');
     assert.equal((storeWrites[0]?.entry as { sessionId: string }).sessionId, 'cli-session-1');
     assert.match(String(client.editButtonsCalls[0]?.text), /Resumed session/);
-    assert.deepEqual(client.answerCallbackCalls[0], { callbackId: 'cb-1', text: 'Session resumed', showAlert: undefined });
+    assert.deepEqual(client.answerCallbackCalls[0], {
+      callbackId: 'cb-1',
+      text: 'Session resumed',
+      showAlert: undefined,
+    });
   });
 
   it('blocks attaching a session that is already active in another chat', async () => {
@@ -196,16 +205,18 @@ describe('handleSessionCallback', () => {
     const result = await attachSessionById('copilot --resume cli-session-manual', 'chat-1', deps);
 
     assert.equal(result.ok, true);
-    assert.deepEqual(resumableSession.resumeCalls, [{
-      sessionId: 'cli-session-manual',
-      opts: {
-        cwd: '/tmp/fallback',
+    assert.deepEqual(resumableSession.resumeCalls, [
+      {
         sessionId: 'cli-session-manual',
-        model: 'claude-sonnet-4',
-        autopilot: false,
-        messageMode: 'enqueue',
+        opts: {
+          cwd: '/tmp/fallback',
+          sessionId: 'cli-session-manual',
+          model: 'claude-sonnet-4',
+          autopilot: false,
+          messageMode: 'enqueue',
+        },
       },
-    }]);
+    ]);
     assert.deepEqual(rememberedWorkDirs, [{ chatId: 'chat-1', cwd: '/tmp/fallback' }]);
     assert.deepEqual(registered, [{ chatId: 'chat-1', session: resumableSession }]);
     assert.equal(sessions.get('chat-1'), resumableSession);

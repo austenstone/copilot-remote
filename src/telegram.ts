@@ -51,10 +51,14 @@ export class TelegramClient implements Client {
   onInlineQuery?: Client['onInlineQuery'];
 
   /** Expose bot API for draft stream integration. */
-  get api() { return this.bot.api; }
+  get api() {
+    return this.bot.api;
+  }
 
   /** Typed accessor for raw API methods (avoids repeated casts). */
-  private get raw(): RawApi { return this.bot.api.raw as RawApi; }
+  private get raw(): RawApi {
+    return this.bot.api.raw as RawApi;
+  }
 
   constructor(private config: TelegramConfig) {
     this.bot = new Bot<MyContext>(config.botToken);
@@ -87,7 +91,11 @@ export class TelegramClient implements Client {
       } catch (error) {
         log.warn(
           '[Telegram API ERR]',
-          ...formatLogFields({ ...txSummary, ms: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) }),
+          ...formatLogFields({
+            ...txSummary,
+            ms: Date.now() - startedAt,
+            error: error instanceof Error ? error.message : String(error),
+          }),
         );
         throw error;
       }
@@ -344,9 +352,9 @@ export class TelegramClient implements Client {
         },
       });
 
-    // Set profile photo if configured
-    const photoPath = this.config.profilePhoto;
-    if (photoPath) this.setMyProfilePhoto(photoPath).catch(() => {});
+      // Set profile photo if configured
+      const photoPath = this.config.profilePhoto;
+      if (photoPath) this.setMyProfilePhoto(photoPath).catch(() => {});
 
       try {
         await this.runner.task();
@@ -354,8 +362,10 @@ export class TelegramClient implements Client {
       } catch (err) {
         const is409 = err instanceof GrammyError && err.error_code === 409;
         if (!is409 || attempt >= MAX_RETRIES) throw err;
-        log.warn(`[Telegram] Got 409 conflict (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY / 1000}s...`);
-        await new Promise(r => setTimeout(r, RETRY_DELAY));
+        log.warn(
+          `[Telegram] Got 409 conflict (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY / 1000}s...`,
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY));
       }
     }
   }
@@ -416,20 +426,31 @@ export class TelegramClient implements Client {
   }
 
   async editMessage(chatId: string, msgId: number, text: string): Promise<void> {
-    log.info('[Telegram TX EDIT]', `chat=${chatId}`, `msg=${msgId}`, `text=${JSON.stringify(summarizeTextForLog(text))}`);
+    log.info(
+      '[Telegram TX EDIT]',
+      `chat=${chatId}`,
+      `msg=${msgId}`,
+      `text=${JSON.stringify(summarizeTextForLog(text))}`,
+    );
     // Render to HTML first, then check length. If too long, truncate at IR level.
     const chunks = markdownToTelegramChunks(text, MAX_MESSAGE_LENGTH);
     const chunk = chunks[0]; // edit can only update one message — use first chunk
     if (!chunk) return;
     try {
       await this.raw['editMessageText']({
-        chat_id: chatId, message_id: msgId, text: chunk.html, parse_mode: 'HTML',
+        chat_id: chatId,
+        message_id: msgId,
+        text: chunk.html,
+        parse_mode: 'HTML',
       });
     } catch {
       // HTML failed — try plain text
       try {
         await this.raw['editMessageText']({
-          chat_id: chatId, message_id: msgId, text: chunk.text, parse_mode: undefined,
+          chat_id: chatId,
+          message_id: msgId,
+          text: chunk.text,
+          parse_mode: undefined,
         });
       } catch (e2) {
         log.debug('[Telegram] editMessage failed:', (e2 as Error)?.message ?? e2);
@@ -440,10 +461,18 @@ export class TelegramClient implements Client {
   /** Lightweight edit for streaming — sends plain text, skips markdown→HTML pipeline. */
   async editMessageRaw(chatId: string, msgId: number, text: string): Promise<void> {
     const truncated = text.length > MAX_MESSAGE_LENGTH ? text.slice(0, MAX_MESSAGE_LENGTH - 4) + ' ...' : text;
-    log.info('[Telegram TX EDIT RAW]', `chat=${chatId}`, `msg=${msgId}`, `text=${JSON.stringify(summarizeTextForLog(truncated))}`);
+    log.info(
+      '[Telegram TX EDIT RAW]',
+      `chat=${chatId}`,
+      `msg=${msgId}`,
+      `text=${JSON.stringify(summarizeTextForLog(truncated))}`,
+    );
     try {
       await this.raw['editMessageText']({
-        chat_id: chatId, message_id: msgId, text: truncated, parse_mode: undefined,
+        chat_id: chatId,
+        message_id: msgId,
+        text: truncated,
+        parse_mode: undefined,
       });
     } catch (e) {
       log.debug('[Telegram] editMessageRaw failed:', (e as Error)?.message ?? e);
@@ -488,30 +517,36 @@ export class TelegramClient implements Client {
       };
       if (opts?.threadId) params.message_thread_id = opts.threadId;
       if (opts?.replyTo) params.reply_parameters = { message_id: opts.replyTo, allow_sending_without_reply: true };
-      log.verbose('[Telegram API TX]', ...formatLogFields({ ...summarizeTelegramApiCall('sendMessageDraft', params), transport: 'fetch' }));
+      log.verbose(
+        '[Telegram API TX]',
+        ...formatLogFields({ ...summarizeTelegramApiCall('sendMessageDraft', params), transport: 'fetch' }),
+      );
       if (log.shouldLog('debug')) {
         log.debug('[Telegram API TX RAW]', 'method=sendMessageDraft', `payload=${JSON.stringify(params)}`);
       }
       const startedAt = Date.now();
-      const resp = await fetch(
-        `https://api.telegram.org/bot${this.config.botToken}/sendMessageDraft`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-          signal: globalThis.AbortSignal.timeout(DRAFT_REQUEST_TIMEOUT_MS), // fail fast to keep streaming responsive
-        },
-      );
+      const resp = await fetch(`https://api.telegram.org/bot${this.config.botToken}/sendMessageDraft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: globalThis.AbortSignal.timeout(DRAFT_REQUEST_TIMEOUT_MS), // fail fast to keep streaming responsive
+      });
       const json = (await resp.json()) as { ok?: boolean; description?: string };
       if (!json.ok) throw new Error(json.description ?? 'sendMessageDraft failed');
-      log.verbose('[Telegram API RX]', ...formatLogFields({ method: 'sendMessageDraft', ok: true, ms: Date.now() - startedAt }));
+      log.verbose(
+        '[Telegram API RX]',
+        ...formatLogFields({ method: 'sendMessageDraft', ok: true, ms: Date.now() - startedAt }),
+      );
       if (log.shouldLog('debug')) {
         log.debug('[Telegram API RX RAW]', 'method=sendMessageDraft', `result=${JSON.stringify(json)}`);
       }
       return true;
     } catch (e) {
       const msg = String(e);
-      log.warn('[Telegram API ERR]', ...formatLogFields({ method: 'sendMessageDraft', chat: chatId, draftId, error: msg }));
+      log.warn(
+        '[Telegram API ERR]',
+        ...formatLogFields({ method: 'sendMessageDraft', chat: chatId, draftId, error: msg }),
+      );
       log.debug('sendMessageDraft failed:', msg);
       if (/unknown method|not (found|available|supported)|can't be used|can be used only|PEER_INVALID/i.test(msg)) {
         this.draftDisabledChats.add(chatId); // disable for THIS chat only
@@ -564,10 +599,18 @@ export class TelegramClient implements Client {
     }
   }
 
-  async sendPhoto(chatId: string, fileOrUrl: string | Buffer, caption?: string, threadId?: number): Promise<number | null> {
+  async sendPhoto(
+    chatId: string,
+    fileOrUrl: string | Buffer,
+    caption?: string,
+    threadId?: number,
+  ): Promise<number | null> {
     try {
-      const source = Buffer.isBuffer(fileOrUrl) ? new InputFile(fileOrUrl, 'image.png')
-        : fileOrUrl.startsWith('/') ? new InputFile(fileOrUrl) : fileOrUrl;
+      const source = Buffer.isBuffer(fileOrUrl)
+        ? new InputFile(fileOrUrl, 'image.png')
+        : fileOrUrl.startsWith('/')
+          ? new InputFile(fileOrUrl)
+          : fileOrUrl;
       const res = await this.bot.api.sendPhoto(chatId, source, {
         ...(caption ? { caption } : {}),
         ...(threadId ? { message_thread_id: threadId } : {}),
@@ -593,7 +636,9 @@ export class TelegramClient implements Client {
   async editForumTopic(chatId: string, threadId: number, name: string): Promise<void> {
     try {
       await this.bot.api.editForumTopic(chatId, threadId, { name });
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   async deleteForumTopic(chatId: string, threadId: number): Promise<void> {
@@ -629,7 +674,9 @@ export class TelegramClient implements Client {
         const fs = await import('fs');
         buffer = fs.readFileSync(pathOrUrl);
       }
-      await this.bot.api.raw.setMyProfilePhoto({ photo: { type: 'static', photo: new InputFile(buffer, 'avatar.jpg') } });
+      await this.bot.api.raw.setMyProfilePhoto({
+        photo: { type: 'static', photo: new InputFile(buffer, 'avatar.jpg') },
+      });
       this.profilePhotoSet = true;
     } catch (e) {
       log.debug('setMyProfilePhoto failed:', e);
@@ -666,14 +713,14 @@ export class TelegramClient implements Client {
     text: string,
   ): Promise<{ message_id?: number } | null> {
     try {
-      return await this.raw[method]({ ...params, text: markdownToHtml(text) }) as { message_id?: number } | null;
+      return (await this.raw[method]({ ...params, text: markdownToHtml(text) })) as { message_id?: number } | null;
     } catch {
       try {
-        return await this.raw[method]({
+        return (await this.raw[method]({
           ...params,
           text: markdownToText(text),
           parse_mode: undefined,
-        }) as { message_id?: number } | null;
+        })) as { message_id?: number } | null;
       } catch {
         return null;
       }
@@ -688,6 +735,4 @@ export class TelegramClient implements Client {
       })),
     );
   }
-
-
 }

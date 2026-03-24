@@ -15,12 +15,16 @@ const DEBUG_LEVEL: LogLevel = 'debug';
 
 function ts(): string {
   const d = new Date();
-  return d.toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  return (
+    d.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }) +
+    '.' +
+    String(d.getMilliseconds()).padStart(3, '0')
+  );
 }
 
 function normalizeLogLevel(value: unknown): LogLevel | null {
@@ -30,7 +34,7 @@ function normalizeLogLevel(value: unknown): LogLevel | null {
   if (normalized === 'trace') return 'debug';
   if (normalized === 'notice') return 'info';
   if (normalized === 'none' || normalized === 'off') return 'silent';
-  return normalized in LOG_LEVELS ? normalized as LogLevel : null;
+  return normalized in LOG_LEVELS ? (normalized as LogLevel) : null;
 }
 
 function resolveInitialLevel(): LogLevel {

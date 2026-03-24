@@ -9,7 +9,8 @@ import { log } from './log.js';
 // node:sqlite is experimental (Node 22 needs --experimental-sqlite, Node 23+ has it auto).
 // Make it optional so the app degrades gracefully — /sessions and /search lose
 // summaries, turn counts, and FTS but everything else works fine.
-let DatabaseSyncClass: (new (path: string, opts?: { open?: boolean; readOnly?: boolean }) => DatabaseSyncLike) | null = null;
+let DatabaseSyncClass: (new (path: string, opts?: { open?: boolean; readOnly?: boolean }) => DatabaseSyncLike) | null =
+  null;
 
 interface DatabaseSyncLike {
   prepare(sql: string): { all(...args: unknown[]): unknown[]; get(...args: unknown[]): unknown };
@@ -175,23 +176,26 @@ export class SessionStore {
   list(): [string, SessionEntry][] {
     if (!this.db) return this.legacyList();
     try {
-      const rows = this.db.prepare(
-        'SELECT id, cwd, summary, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 20'
-      ).all() as unknown as DbSession[];
+      const rows = this.db
+        .prepare('SELECT id, cwd, summary, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 20')
+        .all() as unknown as DbSession[];
       // Build reverse map: sessionId → chatId
       const reverseMap: Record<string, string> = {};
       for (const [chatId, m] of Object.entries(this.chatMap)) {
         reverseMap[m.sessionId] = chatId;
       }
-      return rows.map(row => {
+      return rows.map((row) => {
         const chatId = reverseMap[row.id] ?? SessionStore.sessionKeyFromSessionId(row.id) ?? row.id;
-        return [chatId, {
-          sessionId: row.id,
-          cwd: row.cwd ?? '',
-          model: this.chatMap[chatId]?.model ?? '',
-          createdAt: new Date(row.created_at).getTime(),
-          lastUsed: new Date(row.updated_at).getTime(),
-        }] as [string, SessionEntry];
+        return [
+          chatId,
+          {
+            sessionId: row.id,
+            cwd: row.cwd ?? '',
+            model: this.chatMap[chatId]?.model ?? '',
+            createdAt: new Date(row.created_at).getTime(),
+            lastUsed: new Date(row.updated_at).getTime(),
+          },
+        ] as [string, SessionEntry];
       });
     } catch (e) {
       log.error('[store] Failed to list sessions:', e);
@@ -209,14 +213,16 @@ export class SessionStore {
   search(query: string, limit = 5): { sessionId: string; snippet: string; summary: string | null }[] {
     if (!this.db) return [];
     try {
-      const rows = this.db.prepare(
-        `SELECT DISTINCT s.id, s.summary, snippet(search_index, 0, '<b>', '</b>', '...', 32) as snip
+      const rows = this.db
+        .prepare(
+          `SELECT DISTINCT s.id, s.summary, snippet(search_index, 0, '<b>', '</b>', '...', 32) as snip
          FROM search_index si
          JOIN sessions s ON s.id = si.session_id
          WHERE search_index MATCH ?
-         LIMIT ?`
-      ).all(query, limit) as unknown as Array<{ id: string; summary: string | null; snip: string }>;
-      return rows.map(r => ({ sessionId: r.id, snippet: r.snip, summary: r.summary }));
+         LIMIT ?`,
+        )
+        .all(query, limit) as unknown as Array<{ id: string; summary: string | null; snip: string }>;
+      return rows.map((r) => ({ sessionId: r.id, snippet: r.snip, summary: r.summary }));
     } catch (e) {
       log.debug('[store] Search failed:', e);
       return [];
@@ -227,16 +233,22 @@ export class SessionStore {
   getTurnCount(sessionId: string): number {
     if (!this.db) return 0;
     try {
-      const row = this.db.prepare('SELECT COUNT(*) as cnt FROM turns WHERE session_id = ?').get(sessionId) as unknown as { cnt: number };
+      const row = this.db
+        .prepare('SELECT COUNT(*) as cnt FROM turns WHERE session_id = ?')
+        .get(sessionId) as unknown as { cnt: number };
       return row?.cnt ?? 0;
-    } catch { return 0; }
+    } catch {
+      return 0;
+    }
   }
 
   private getDbSession(sessionId: string): DbSession | undefined {
     if (!this.db) return undefined;
     try {
       return this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as unknown as DbSession | undefined;
-    } catch { return undefined; }
+    } catch {
+      return undefined;
+    }
   }
 
   private findMappedChatId(sessionId: string): string | undefined {
@@ -245,7 +257,7 @@ export class SessionStore {
 
   private getMappedModel(sessionId: string): string {
     const mappedChatId = this.findMappedChatId(sessionId) ?? SessionStore.sessionKeyFromSessionId(sessionId);
-    return mappedChatId ? this.chatMap[mappedChatId]?.model ?? '' : '';
+    return mappedChatId ? (this.chatMap[mappedChatId]?.model ?? '') : '';
   }
 
   private getExistingEntry(sessionId: string, model = ''): SessionEntry | undefined {
@@ -262,7 +274,13 @@ export class SessionStore {
 
   private legacyList(): [string, SessionEntry][] {
     return Object.entries(this.chatMap)
-      .map(([chatId, m]) => [chatId, { sessionId: m.sessionId, cwd: '', model: m.model, createdAt: 0, lastUsed: 0 }] as [string, SessionEntry])
+      .map(
+        ([chatId, m]) =>
+          [chatId, { sessionId: m.sessionId, cwd: '', model: m.model, createdAt: 0, lastUsed: 0 }] as [
+            string,
+            SessionEntry,
+          ],
+      )
       .sort((a, b) => b[1].lastUsed - a[1].lastUsed);
   }
 
@@ -289,7 +307,9 @@ export class SessionStore {
     try {
       mkdirSync(dirname(CHAT_MAP_PATH), { recursive: true });
       writeFileSync(CHAT_MAP_PATH, JSON.stringify(this.chatMap, null, 2));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   private loadWorkDirMap(): void {
@@ -304,6 +324,8 @@ export class SessionStore {
     try {
       mkdirSync(dirname(WORK_DIR_PATH), { recursive: true });
       writeFileSync(WORK_DIR_PATH, JSON.stringify(this.workDirMap, null, 2));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }

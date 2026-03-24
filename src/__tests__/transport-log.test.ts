@@ -93,11 +93,7 @@ describe('transport-log', () => {
   });
 
   it('formats log fields predictably', () => {
-    assert.deepEqual(formatLogFields({ chat: 123, text: 'hello', ok: true }), [
-      'chat=123',
-      'text="hello"',
-      'ok=true',
-    ]);
+    assert.deepEqual(formatLogFields({ chat: 123, text: 'hello', ok: true }), ['chat=123', 'text="hello"', 'ok=true']);
   });
 
   it('clips long text summaries', () => {

@@ -72,10 +72,10 @@ function stripJsonc(text: string): string {
       }
       result += text.slice(i, j + 1);
       i = j + 1;
-    // Single-line comment
+      // Single-line comment
     } else if (text[i] === '/' && text[i + 1] === '/') {
       while (i < text.length && text[i] !== '\n') i++;
-    // Multi-line comment
+      // Multi-line comment
     } else if (text[i] === '/' && text[i + 1] === '*') {
       i += 2;
       while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
@@ -204,7 +204,7 @@ export function loadMcpServers(
   // Expand ${workspaceFolder} before any file I/O or coercion
   const asString = JSON.stringify(rawMerged);
   const expanded = workDir
-    ? JSON.parse(asString.replace(/\$\{workspaceFolder\}/g, workDir)) as Record<string, Record<string, unknown>>
+    ? (JSON.parse(asString.replace(/\$\{workspaceFolder\}/g, workDir)) as Record<string, Record<string, unknown>>)
     : rawMerged;
 
   // Process envFile references (now paths are resolved)
@@ -260,19 +260,19 @@ export function formatServerLine(name: string, cfg: MCPServerConfig): string {
   const detail = isRemote
     ? (cfg as MCPRemoteServerConfig).url
     : `${(cfg as MCPLocalServerConfig).command} ${(cfg as MCPLocalServerConfig).args.join(' ')}`;
-  const toolsStr = cfg.tools.length === 1 && cfg.tools[0] === '*'
-    ? 'all tools'
-    : cfg.tools.length === 0 ? 'no tools' : cfg.tools.join(', ');
+  const toolsStr =
+    cfg.tools.length === 1 && cfg.tools[0] === '*'
+      ? 'all tools'
+      : cfg.tools.length === 0
+        ? 'no tools'
+        : cfg.tools.join(', ');
   return `${icon} \`${name}\` — ${detail}\n   _Tools: ${toolsStr}_`;
 }
 
 /** Return the config file paths that loadMcpServers reads from (standard locations first, copilot-remote fallback last) */
 export function getConfigPaths(workDir?: string): string[] {
   const home = process.env.HOME ?? '~';
-  const paths: string[] = [
-    path.join(home, '.copilot', 'mcp-config.json'),
-    path.join(home, '.vscode', 'mcp.json'),
-  ];
+  const paths: string[] = [path.join(home, '.copilot', 'mcp-config.json'), path.join(home, '.vscode', 'mcp.json')];
   if (workDir) {
     paths.push(path.join(workDir, '.vscode', 'mcp.json'));
     paths.push(path.join(workDir, '.mcp.json'));

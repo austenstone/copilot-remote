@@ -158,15 +158,26 @@ function tablesToCode(md: string): string {
         // Collect all table rows (header + data)
         const tableRows: string[][] = [];
         // Header
-        tableRows.push(line.split('|').filter(c => c.trim()).map(c => c.trim()));
+        tableRows.push(
+          line
+            .split('|')
+            .filter((c) => c.trim())
+            .map((c) => c.trim()),
+        );
         i += 2; // skip header + separator
         // Data rows
         while (i < lines.length && lines[i].trim().startsWith('|')) {
-          tableRows.push(lines[i].trim().split('|').filter(c => c.trim()).map(c => c.trim()));
+          tableRows.push(
+            lines[i]
+              .trim()
+              .split('|')
+              .filter((c) => c.trim())
+              .map((c) => c.trim()),
+          );
           i++;
         }
         // Calculate column widths
-        const colCount = Math.max(...tableRows.map(r => r.length));
+        const colCount = Math.max(...tableRows.map((r) => r.length));
         const widths = Array.from({ length: colCount }, () => 0);
         for (const row of tableRows) {
           for (let j = 0; j < colCount; j++) {
@@ -174,12 +185,11 @@ function tablesToCode(md: string): string {
           }
         }
         // Render aligned table
-        const renderRow = (cells: string[]) =>
-          cells.map((c, j) => (c ?? '').padEnd(widths[j])).join('  ');
+        const renderRow = (cells: string[]) => cells.map((c, j) => (c ?? '').padEnd(widths[j])).join('  ');
         // Header
         result.push('```');
         result.push(renderRow(tableRows[0]));
-        result.push(widths.map(w => '─'.repeat(w)).join('──'));
+        result.push(widths.map((w) => '─'.repeat(w)).join('──'));
         // Data rows
         for (let r = 1; r < tableRows.length; r++) {
           result.push(renderRow(tableRows[r]));

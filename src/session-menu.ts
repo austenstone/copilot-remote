@@ -130,9 +130,13 @@ export async function attachSessionById(
     return {
       ok: true,
       message:
-        '🔁 Resumed session. Send a message to continue.\n\n'
-        + '🆔 `' + selectedSessionId + '`\n'
-        + '📂 `' + targetCwd + '`',
+        '🔁 Resumed session. Send a message to continue.\n\n' +
+        '🆔 `' +
+        selectedSessionId +
+        '`\n' +
+        '📂 `' +
+        targetCwd +
+        '`',
       callbackText: 'Session resumed',
     };
   } catch (error) {

@@ -423,12 +423,7 @@ describe('TelegramClient grammY-style adapter tests', () => {
     });
     const { calls } = await createTelegramHarness(client);
 
-    await client.sendButtons(
-      '123',
-      'Approve this?',
-      [[{ text: 'Approve', data: 'perm:yes', style: 'success' }]],
-      77,
-    );
+    await client.sendButtons('123', 'Approve this?', [[{ text: 'Approve', data: 'perm:yes', style: 'success' }]], 77);
 
     const sendMessageCall = calls.find((call) => call.method === 'sendMessage');
     assert.ok(sendMessageCall);

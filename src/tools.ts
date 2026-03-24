@@ -23,11 +23,15 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         properties: { message: { type: 'string', description: 'The notification message' } },
         required: ['message'],
       },
-      handler: async (args: { message: string }) => { await cb.sendNotification(args.message); return { success: true }; },
+      handler: async (args: { message: string }) => {
+        await cb.sendNotification(args.message);
+        return { success: true };
+      },
     }),
 
     defineTool('send_file', {
-      description: 'Send a file (document, audio, video, image) to the user on Telegram. Use for any file the user needs delivered.',
+      description:
+        'Send a file (document, audio, video, image) to the user on Telegram. Use for any file the user needs delivered.',
       parameters: {
         type: 'object',
         properties: {
@@ -36,11 +40,15 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         },
         required: ['path'],
       },
-      handler: async (args: { path: string; caption?: string }) => { await cb.sendFile(args.path, args.caption); return { success: true }; },
+      handler: async (args: { path: string; caption?: string }) => {
+        await cb.sendFile(args.path, args.caption);
+        return { success: true };
+      },
     }),
 
     defineTool('send_photo', {
-      description: 'Send a photo/image to the user. Supports local file paths or URLs. Use for screenshots, generated images, charts, diagrams.',
+      description:
+        'Send a photo/image to the user. Supports local file paths or URLs. Use for screenshots, generated images, charts, diagrams.',
       parameters: {
         type: 'object',
         properties: {
@@ -49,7 +57,10 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         },
         required: ['path'],
       },
-      handler: async (args: { path: string; caption?: string }) => { await cb.sendPhoto(args.path, args.caption); return { success: true }; },
+      handler: async (args: { path: string; caption?: string }) => {
+        await cb.sendPhoto(args.path, args.caption);
+        return { success: true };
+      },
     }),
 
     defineTool('send_location', {
@@ -69,9 +80,9 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
       },
     }),
 
-
     defineTool('send_voice', {
-      description: 'Send a voice message (audio recorded as voice note) to the user. Use for audio responses or TTS output.',
+      description:
+        'Send a voice message (audio recorded as voice note) to the user. Use for audio responses or TTS output.',
       parameters: {
         type: 'object',
         properties: {
@@ -80,11 +91,15 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         },
         required: ['path'],
       },
-      handler: async (args: { path: string; caption?: string }) => { await cb.sendVoice(args.path, args.caption); return { success: true }; },
+      handler: async (args: { path: string; caption?: string }) => {
+        await cb.sendVoice(args.path, args.caption);
+        return { success: true };
+      },
     }),
 
     defineTool('pin_message', {
-      description: 'Pin a message in the chat. Use when a response contains important info the user should keep visible.',
+      description:
+        'Pin a message in the chat. Use when a response contains important info the user should keep visible.',
       parameters: {
         type: 'object',
         properties: {
@@ -92,11 +107,15 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         },
         required: ['message_id'],
       },
-      handler: async (args: { message_id: number }) => { await cb.pinMessage(args.message_id); return { success: true }; },
+      handler: async (args: { message_id: number }) => {
+        await cb.pinMessage(args.message_id);
+        return { success: true };
+      },
     }),
 
     defineTool('create_topic', {
-      description: 'Create a new forum topic (thread) in the Telegram group. Use to spin up isolated workspaces for subtasks.',
+      description:
+        'Create a new forum topic (thread) in the Telegram group. Use to spin up isolated workspaces for subtasks.',
       parameters: {
         type: 'object',
         properties: {
@@ -112,7 +131,8 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
     }),
 
     defineTool('react', {
-      description: 'React to a message with an emoji. Use to acknowledge, express sentiment, or provide feedback on a specific message.',
+      description:
+        'React to a message with an emoji. Use to acknowledge, express sentiment, or provide feedback on a specific message.',
       parameters: {
         type: 'object',
         properties: {
@@ -121,7 +141,10 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
         },
         required: ['message_id', 'emoji'],
       },
-      handler: async (args: { message_id: number; emoji: string }) => { await cb.react(args.message_id, args.emoji); return { success: true }; },
+      handler: async (args: { message_id: number; emoji: string }) => {
+        await cb.react(args.message_id, args.emoji);
+        return { success: true };
+      },
     }),
 
     defineTool('send_contact', {

@@ -49,9 +49,6 @@ describe('resolveProviderConfig', () => {
   });
 
   it('throws when provider fields are present without a baseUrl', () => {
-    assert.throws(
-      () => resolveProviderConfig({ type: 'openai' }, {} as NodeJS.ProcessEnv),
-      /missing baseUrl/,
-    );
+    assert.throws(() => resolveProviderConfig({ type: 'openai' }, {} as NodeJS.ProcessEnv), /missing baseUrl/);
   });
 });

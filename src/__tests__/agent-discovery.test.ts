@@ -12,7 +12,7 @@ describe('discoverAgents', () => {
     fs.mkdirSync(agentsDir, { recursive: true });
     fs.writeFileSync(
       path.join(agentsDir, 'notes.agent.md'),
-      `---\ndescription: \"Notes agent\"\ntools: [read, search]\nname: notes\nuser-invocable: true\n---\n\n# Notes agent\n\nTake notes.\n`,
+      `---\ndescription: "Notes agent"\ntools: [read, search]\nname: notes\nuser-invocable: true\n---\n\n# Notes agent\n\nTake notes.\n`,
       'utf8',
     );
 

@@ -173,16 +173,16 @@ describe('mcp-config', () => {
     it('returns expected config file paths', () => {
       const paths = getConfigPaths('/my/project');
       assert.ok(paths.length >= 5);
-      assert.ok(paths.some(p => p.includes('.copilot-remote')));
-      assert.ok(paths.some(p => p.includes('mcp-config.json')));
-      assert.ok(paths.some(p => p.endsWith('.mcp.json')));
+      assert.ok(paths.some((p) => p.includes('.copilot-remote')));
+      assert.ok(paths.some((p) => p.includes('mcp-config.json')));
+      assert.ok(paths.some((p) => p.endsWith('.mcp.json')));
     });
 
     it('includes workdir-specific paths when workDir is provided', () => {
       const withWork = getConfigPaths('/my/project');
       const without = getConfigPaths();
       assert.ok(withWork.length > without.length);
-      assert.ok(withWork.some(p => p.startsWith('/my/project')));
+      assert.ok(withWork.some((p) => p.startsWith('/my/project')));
     });
   });
 

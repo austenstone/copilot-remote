@@ -61,9 +61,7 @@ const AGENT_DIRS = [
   ['.claude', 'agents'],
 ] as const;
 
-const PROMPT_DIRS = [
-  ['.github', 'prompts'],
-] as const;
+const PROMPT_DIRS = [['.github', 'prompts']] as const;
 const RESTART_NOTICE_TTL_MS = 15 * 60 * 1000;
 
 export function getRestartNoticePath(homeDir = process.env.HOME ?? '.'): string {
@@ -215,7 +213,12 @@ export function collectWatchTargets(opts: {
 }
 
 function statsChanged(curr: Stats, prev: Stats): boolean {
-  return curr.mtimeMs !== prev.mtimeMs || curr.ctimeMs !== prev.ctimeMs || curr.size !== prev.size || curr.nlink !== prev.nlink;
+  return (
+    curr.mtimeMs !== prev.mtimeMs ||
+    curr.ctimeMs !== prev.ctimeMs ||
+    curr.size !== prev.size ||
+    curr.nlink !== prev.nlink
+  );
 }
 
 export class RestartManager {
@@ -258,7 +261,12 @@ export class RestartManager {
 
     const nextTargets = new Set(
       this.settings.enabled
-        ? collectWatchTargets({ homeDir: this.homeDir, workDirs: this.workDirs, config: this.config, settings: this.settings })
+        ? collectWatchTargets({
+            homeDir: this.homeDir,
+            workDirs: this.workDirs,
+            config: this.config,
+            settings: this.settings,
+          })
         : [],
     );
 

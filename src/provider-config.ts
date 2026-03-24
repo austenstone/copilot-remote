@@ -26,7 +26,9 @@ function sanitizeProviderConfig(input: Partial<RemoteProviderConfig> | undefined
   const hasAnyField = Boolean(baseUrl || type || apiKey || bearerToken || wireApi || apiVersion);
   if (!hasAnyField) return undefined;
   if (!baseUrl) {
-    throw new Error('BYOK provider is configured but missing baseUrl. Set provider.baseUrl or COPILOT_REMOTE_PROVIDER_BASE_URL.');
+    throw new Error(
+      'BYOK provider is configured but missing baseUrl. Set provider.baseUrl or COPILOT_REMOTE_PROVIDER_BASE_URL.',
+    );
   }
 
   return {
@@ -49,7 +51,8 @@ export function resolveProviderConfig(
     baseUrl: env.COPILOT_REMOTE_PROVIDER_BASE_URL ?? fileProvider?.baseUrl,
     apiKey: env.COPILOT_REMOTE_PROVIDER_API_KEY ?? fileProvider?.apiKey,
     bearerToken: env.COPILOT_REMOTE_PROVIDER_BEARER_TOKEN ?? fileProvider?.bearerToken,
-    wireApi: (env.COPILOT_REMOTE_PROVIDER_WIRE_API as RemoteProviderConfig['wireApi'] | undefined) ?? fileProvider?.wireApi,
+    wireApi:
+      (env.COPILOT_REMOTE_PROVIDER_WIRE_API as RemoteProviderConfig['wireApi'] | undefined) ?? fileProvider?.wireApi,
     azure: {
       apiVersion: env.COPILOT_REMOTE_PROVIDER_AZURE_API_VERSION ?? fileProvider?.azure?.apiVersion,
     },

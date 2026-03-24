@@ -54,9 +54,7 @@ describe('finalizeStreamResponse', () => {
     });
 
     assert.equal(result, 'edited');
-    assert.deepEqual(calls, [
-      { method: 'editMessage', args: ['chat-1', 42, 'short final response'] },
-    ]);
+    assert.deepEqual(calls, [{ method: 'editMessage', args: ['chat-1', 42, 'short final response'] }]);
   });
 
   it('deletes the placeholder and resends for multi-chunk replies', async () => {
@@ -112,8 +110,6 @@ describe('finalizeStreamResponse', () => {
     });
 
     assert.equal(result, 'sent');
-    assert.deepEqual(calls, [
-      { method: 'sendMessage', args: ['chat-1', 'final response', { replyTo: 7 }] },
-    ]);
+    assert.deepEqual(calls, [{ method: 'sendMessage', args: ['chat-1', 'final response', { replyTo: 7 }] }]);
   });
 });

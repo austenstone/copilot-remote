@@ -3,11 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {
-  acquireSingleInstanceLock,
-  createInstanceOwner,
-  type InstanceOwner,
-} from '../single-instance.js';
+import { acquireSingleInstanceLock, createInstanceOwner, type InstanceOwner } from '../single-instance.js';
 
 function makeTempLockDir(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-remote-lock-')), 'instance.lock');

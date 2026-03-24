@@ -277,7 +277,12 @@ describe('Session', () => {
         content: '',
         reasoningText: 'Use the code-review agent for this repo audit.',
         toolRequests: [
-          { toolCallId: 'call-1', name: 'report_intent', arguments: { intent: 'Reviewing code changes' }, type: 'function' },
+          {
+            toolCallId: 'call-1',
+            name: 'report_intent',
+            arguments: { intent: 'Reviewing code changes' },
+            type: 'function',
+          },
           { toolCallId: 'call-2', name: 'task', arguments: { agent_type: 'code-review' }, type: 'function' },
         ],
       },
@@ -292,7 +297,12 @@ describe('Session', () => {
       content: undefined,
       reasoningText: 'Use the code-review agent for this repo audit.',
       toolRequests: [
-        { toolCallId: 'call-1', name: 'report_intent', arguments: { intent: 'Reviewing code changes' }, type: 'function' },
+        {
+          toolCallId: 'call-1',
+          name: 'report_intent',
+          arguments: { intent: 'Reviewing code changes' },
+          type: 'function',
+        },
         { toolCallId: 'call-2', name: 'task', arguments: { agent_type: 'code-review' }, type: 'function' },
       ],
     });
