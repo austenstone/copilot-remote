@@ -1659,6 +1659,81 @@ async function main(): Promise<void> {
         );
         break;
       }
+      case '/topic': {
+        const [sub, ...rest] = args;
+        const topicName = rest.join(' ').trim();
+        const [cid, tid] = resolveKey(chatId);
+
+        switch (sub) {
+          case 'create': {
+            if (!topicName) {
+              await client.sendMessage(chatId, '❌ Usage: `/topic create <name>`');
+              break;
+            }
+            const threadId = await client.createForumTopic?.(cid, topicName);
+            if (threadId) {
+              await client.sendMessage(chatId, `✅ Created topic *${topicName}* (thread \`${threadId}\`)`);
+            } else {
+              await client.sendMessage(chatId, '❌ Failed to create topic. Is this a supergroup with topics enabled?');
+            }
+            break;
+          }
+          case 'rename': {
+            if (!tid) {
+              await client.sendMessage(chatId, '❌ This command only works inside a forum topic.');
+              break;
+            }
+            if (!topicName) {
+              await client.sendMessage(chatId, '❌ Usage: `/topic rename <name>`');
+              break;
+            }
+            if ('editForumTopic' in client) {
+              await (
+                client as unknown as { editForumTopic: (c: string, t: number, n: string) => Promise<void> }
+              ).editForumTopic(cid, tid, topicName);
+              await client.sendMessage(chatId, `✅ Renamed topic to *${topicName}*`);
+            } else {
+              await client.sendMessage(chatId, '❌ Topic renaming not supported by this client.');
+            }
+            break;
+          }
+          case 'delete': {
+            if (!tid) {
+              await client.sendMessage(chatId, '❌ This command only works inside a forum topic.');
+              break;
+            }
+            await client.deleteForumTopic?.(cid, tid);
+            await client.sendMessage(chatId, '✅ Topic deleted.');
+            break;
+          }
+          case 'list': {
+            const all = sessionStore.list();
+            const topicSessions = all.filter(([key]) => key.includes(':'));
+            if (!topicSessions.length) {
+              await client.sendMessage(chatId, '📋 No topic sessions found.');
+              break;
+            }
+            const lines = topicSessions.slice(0, 15).map(([key, entry]) => {
+              const name = client.getTopicName?.(key) ?? 'Unknown';
+              const age = Math.round((Date.now() - entry.lastUsed) / 60000);
+              const ageStr = age < 60 ? age + 'm ago' : Math.round(age / 60) + 'h ago';
+              return `• *${name}* — ${ageStr}`;
+            });
+            await client.sendMessage(chatId, '📋 *Topic Sessions*\n' + lines.join('\n'));
+            break;
+          }
+          default:
+            await client.sendMessage(
+              chatId,
+              '📌 *Topic Management*\n' +
+                '`/topic create <name>` — Create a new forum topic\n' +
+                '`/topic rename <name>` — Rename the current topic\n' +
+                '`/topic delete` — Delete the current topic\n' +
+                '`/topic list` — List active sessions by topic',
+            );
+        }
+        break;
+      }
       case '/sessionid':
       case '/id': {
         const selectedSessionId = argStr.trim() || sessions.get(chatId)?.sessionId;
