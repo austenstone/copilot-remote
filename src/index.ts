@@ -390,6 +390,9 @@ async function main(): Promise<void> {
         if (cid === chatId) {
           pendingPerms.delete(id);
           client.editButtons(chatId, id, '⏰ Expired (denied)', []).catch(() => {});
+          setTimeout(() => {
+            client.deleteMessage?.(chatId, id).catch(() => {});
+          }, 8_000);
         }
       }
     });
