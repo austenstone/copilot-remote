@@ -479,6 +479,24 @@ async function main(): Promise<void> {
       await tc.sendContact(numericId, info.phone, info.firstName, { last_name: info.lastName });
     });
 
+    session.on(
+      'poll',
+      async (info: {
+        question: string;
+        options: string[];
+        isAnonymous?: boolean;
+        allowsMultiple?: boolean;
+        resolve: (id: number) => void;
+      }) => {
+        const { tc, numericId } = getBotApi();
+        const msg = (await tc.sendPoll(numericId, info.question, info.options, {
+          is_anonymous: info.isAnonymous ?? true,
+          allows_multiple_answers: info.allowsMultiple ?? false,
+        })) as { message_id: number };
+        info.resolve(msg.message_id);
+      },
+    );
+
     session.on('hook:error', async (info: { error?: unknown; message?: string }) => {
       const msg =
         info.message ?? (info.error instanceof Error ? info.error.message : String(info.error ?? 'Unknown error'));

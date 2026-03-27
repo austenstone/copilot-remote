@@ -12,6 +12,7 @@ export interface TelegramToolCallbacks {
   createTopic: (name: string, iconColor?: number) => Promise<number>;
   react: (messageId: number, emoji: string) => Promise<void>;
   sendContact: (phone: string, firstName: string, lastName?: string) => Promise<void>;
+  sendPoll: (question: string, options: string[], isAnonymous?: boolean, allowsMultiple?: boolean) => Promise<number>;
 }
 
 export function createTelegramTools(cb: TelegramToolCallbacks) {
@@ -161,6 +162,31 @@ export function createTelegramTools(cb: TelegramToolCallbacks) {
       handler: async (args: { phone: string; first_name: string; last_name?: string }) => {
         await cb.sendContact(args.phone, args.first_name, args.last_name);
         return { success: true };
+      },
+    }),
+    defineTool('create_poll', {
+      description: 'Create a poll in the Telegram chat. Use for voting, quick surveys, or gathering opinions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The poll question' },
+          options: { type: 'array', items: { type: 'string' }, description: 'Poll options (minimum 2)', minItems: 2 },
+          is_anonymous: { type: 'boolean', description: 'Whether the poll is anonymous (default: true)' },
+          allows_multiple_answers: {
+            type: 'boolean',
+            description: 'Whether multiple answers are allowed (default: false)',
+          },
+        },
+        required: ['question', 'options'],
+      },
+      handler: async (args: {
+        question: string;
+        options: string[];
+        is_anonymous?: boolean;
+        allows_multiple_answers?: boolean;
+      }) => {
+        const result = await cb.sendPoll(args.question, args.options, args.is_anonymous, args.allows_multiple_answers);
+        return { success: true, message_id: result };
       },
     }),
   ];

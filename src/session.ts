@@ -416,7 +416,7 @@ export class Session extends EventEmitter {
       'Show your work: mention files you read, commands you ran, changes you made.',
       'Format responses with markdown (bold, code blocks, lists) — it renders in Telegram.',
       'You are running via copilot-remote, a Telegram bridge for GitHub Copilot CLI.',
-      'You have custom Telegram tools: send_notification, send_file, send_photo, send_location, send_voice, pin_message, create_topic, react, send_contact.',
+      'You have custom Telegram tools: send_notification, send_file, send_photo, send_location, send_voice, pin_message, create_topic, react, send_contact, create_poll.',
       'Use these tools when the user asks to send files, photos, locations, or when you want to push rich content back to the chat.',
       ...(opts.topicContext
         ? [`This conversation is in a Telegram forum topic: "${opts.topicContext}". Stay focused on this subject.`]
@@ -477,6 +477,11 @@ export class Session extends EventEmitter {
         sendContact: async (phone, firstName, lastName) => {
           this.emit('contact', { phone, firstName, lastName });
         },
+        sendPoll: async (question, options, isAnonymous, allowsMultiple) => {
+          return new Promise((resolve) => {
+            this.emit('poll', { question, options, isAnonymous, allowsMultiple, resolve });
+          });
+        },
       }),
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
@@ -494,7 +499,7 @@ export class Session extends EventEmitter {
           return {
             additionalContext: [
               'You are running via copilot-remote on Telegram.',
-              'Use your custom Telegram tools (send_file, send_photo, send_location, send_voice, pin_message, create_topic, react, send_contact) when appropriate.',
+              'Use your custom Telegram tools (send_file, send_photo, send_location, send_voice, pin_message, create_topic, react, send_contact, create_poll) when appropriate.',
               `Session ID: ${invocation.sessionId}`,
             ].join(' '),
           };
