@@ -748,12 +748,18 @@ async function main(): Promise<void> {
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
         const tgStart = performance.now();
-        const ok = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
-        noteTelegramCall(tgStart, ok);
-        if (ok) {
+        const result = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
+        noteTelegramCall(tgStart, result === 'ok');
+        if (result === 'ok') {
           placeholderPrimed = true;
           markTimeline('placeholder', 'draft');
           log.debug('Stream: primed draft', draftId, 'for', chatId);
+          return;
+        }
+        if (result === 'transient') {
+          // Network/timeout: request may have actually reached Telegram. Falling
+          // back to sendMessage would risk a duplicate. Skip priming this tick;
+          // next stream chunk will retry the draft.
           return;
         }
         useDraft = false;
@@ -903,10 +909,15 @@ async function main(): Promise<void> {
       if (useDraft && client.sendDraft) {
         if (!draftId) draftId = client.allocateDraftId!();
         const tgStart = performance.now();
-        const ok = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
+        const result = await client.sendDraft(chatId, draftId, text, responseMessageOpts);
         noteTelegramCall(tgStart);
-        if (ok) return;
-        useDraft = false; // fall back to edit-in-place
+        if (result === 'ok') return;
+        if (result === 'transient') {
+          // Skip this chunk to avoid creating a duplicate via sendMessage when
+          // the draft request may have actually reached Telegram. Next chunk retries.
+          return;
+        }
+        useDraft = false; // permanent: fall back to edit-in-place
       }
 
       // Fallback: send then edit
