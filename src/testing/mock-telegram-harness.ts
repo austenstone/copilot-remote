@@ -114,9 +114,9 @@ export class MockTelegramHarness implements Client {
     this.log('react-clear', msgId, chatId);
   }
 
-  async sendDraft(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<boolean> {
+  async sendDraft(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<'ok' | 'transient' | 'permanent'> {
     this.log('draft', draftId, this.formatMessage(chatId, text, opts));
-    return true;
+    return 'ok';
   }
 
   allocateDraftId(): number {

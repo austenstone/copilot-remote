@@ -506,8 +506,8 @@ export class TelegramClient implements Client {
 
   private draftDisabledChats = new Set<string>();
 
-  async sendDraft(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<boolean> {
-    if (this.draftDisabledChats.has(chatId)) return false;
+  async sendDraft(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<'ok' | 'transient' | 'permanent'> {
+    if (this.draftDisabledChats.has(chatId)) return 'permanent';
     try {
       const params: Record<string, unknown> = {
         chat_id: chatId,
@@ -540,7 +540,7 @@ export class TelegramClient implements Client {
       if (log.shouldLog('debug')) {
         log.debug('[Telegram API RX RAW]', 'method=sendMessageDraft', `result=${JSON.stringify(json)}`);
       }
-      return true;
+      return 'ok';
     } catch (e) {
       const msg = String(e);
       log.warn(
@@ -550,8 +550,12 @@ export class TelegramClient implements Client {
       log.debug('sendMessageDraft failed:', msg);
       if (/unknown method|not (found|available|supported)|can't be used|can be used only|PEER_INVALID/i.test(msg)) {
         this.draftDisabledChats.add(chatId); // disable for THIS chat only
+        return 'permanent';
       }
-      return false;
+      // Network/timeout/5xx: request may have actually reached Telegram (response lost).
+      // Falling back to sendMessage would create a duplicate. Skip this chunk; next
+      // stream chunk will retry the draft naturally.
+      return 'transient';
     }
   }
 

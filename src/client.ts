@@ -32,7 +32,7 @@ export interface Client {
   removeReaction(chatId: string, msgId: number): Promise<void>;
 
   // Draft streaming (optional — platforms that support native streaming)
-  sendDraft?(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<boolean>;
+  sendDraft?(chatId: string, draftId: number, text: string, opts?: MessageOptions): Promise<'ok' | 'transient' | 'permanent'>;
   allocateDraftId?(): number;
 
   // File operations (optional)

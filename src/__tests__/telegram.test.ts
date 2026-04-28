@@ -195,7 +195,7 @@ describe('TelegramClient.sendDraft', () => {
       replyTo: 7,
     });
 
-    assert.equal(ok, true);
+    assert.equal(ok, 'ok');
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /sendMessageDraft$/);
 
@@ -459,9 +459,9 @@ describe('TelegramClient draft failure handling', () => {
     const secondSameChat = await client.sendDraft('chat-1', 2, 'hello again');
     const otherChat = await client.sendDraft('chat-2', 3, 'hello other chat');
 
-    assert.equal(first, false);
-    assert.equal(secondSameChat, false);
-    assert.equal(otherChat, false);
+    assert.equal(first, 'permanent');
+    assert.equal(secondSameChat, 'permanent');
+    assert.equal(otherChat, 'permanent');
     assert.equal(calls.length, 2);
   });
 });
