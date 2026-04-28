@@ -64,7 +64,7 @@ export async function handleIncomingFileUpload(ctx: IncomingFileContext, deps: F
 
     if (isImageFile(ctx.fileName)) {
       const prompt = ctx.caption || 'Describe this image.';
-      const attachments: FileAttachment[] = [{ type: 'file', path: tmpPath }];
+      const attachments: FileAttachment[] = [{ type: 'file', path: tmpPath, displayName: ctx.fileName }];
       await deps.handlePrompt(ctx.chatId, ctx.msgId, prompt, attachments);
       return;
     }
